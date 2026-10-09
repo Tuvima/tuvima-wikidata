@@ -8,7 +8,7 @@
 
     <!-- NuGet package metadata -->
     <PackageId>Tuvima.Wikidata</PackageId>
-    <Version>3.9.1</Version>
+    <Version>3.10.0</Version>
     <Authors>Tuvima</Authors>
     <Description>A .NET library for working with Wikidata and Wikipedia. Entity reconciliation with dual-search and fuzzy matching, structured data fetching, Wikipedia content retrieval, and lightweight in-memory entity graph traversal. Zero external dependencies, AOT compatible. Reconciliation algorithms based on openrefine-wikibase by Antonin Delpeuch.</Description>
     <PackageTags>wikidata;reconciliation;wikibase;openrefine;entity-matching;wikipedia;graph;entity-graph</PackageTags>
@@ -17,6 +17,19 @@
     <RepositoryUrl>https://github.com/Tuvima/wikidata</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+
+    <!-- Ship XML docs so consumers get IntelliSense; publish symbols and reproducible builds. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Documented members ship in IntelliSense; undocumented DTO members don't fail the build. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <!-- Fail pack on accidental breaking changes against the last published version. -->
+    <EnablePackageValidation>true</EnablePackageValidation>
+    <PackageValidationBaselineVersion>3.9.1</PackageValidationBaselineVersion>
+    <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
 
     <!-- AOT/trimming support -->
     <IsAotCompatible>true</IsAotCompatible>

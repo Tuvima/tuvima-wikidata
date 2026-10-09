@@ -24,7 +24,7 @@ internal sealed class ReconciliationScorer
         WikidataEntity entity,
         string language,
         IReadOnlyList<PropertyConstraint>? properties,
-        WikidataEntityFetcher fetcher,
+        EntityLookup lookup,
         CancellationToken cancellationToken,
         bool diacriticInsensitive = false)
     {
@@ -58,7 +58,7 @@ internal sealed class ReconciliationScorer
         {
             foreach (var prop in properties)
             {
-                var propScore = await ScorePropertyAsync(entity, prop, fetcher, language, cancellationToken)
+                var propScore = await ScorePropertyAsync(entity, prop, lookup, diacriticInsensitive, cancellationToken)
                     .ConfigureAwait(false);
                 propertyScores[prop.PropertyId] = propScore;
                 weightedSum += propScore * propertyWeight;
@@ -107,12 +107,12 @@ internal sealed class ReconciliationScorer
     private static async Task<int> ScorePropertyAsync(
         WikidataEntity entity,
         PropertyConstraint constraint,
-        WikidataEntityFetcher fetcher,
-        string language,
+        EntityLookup lookup,
+        bool diacriticInsensitive,
         CancellationToken cancellationToken)
     {
         var path = new PropertyPath(constraint.PropertyId);
-        var claimValues = await path.ResolveAsync(entity, fetcher, language, cancellationToken)
+        var claimValues = await path.ResolveAsync(entity, lookup, cancellationToken)
             .ConfigureAwait(false);
 
         if (claimValues.Count == 0)
@@ -129,7 +129,10 @@ internal sealed class ReconciliationScorer
             var bestScore = 0;
             foreach (var claimValue in claimValues)
             {
-                var score = PropertyMatcher.Match(constraintValue, claimValue.DataValue, claimValue.DataType);
+                var score = claimValue.DataType == "wikibase-item" && !PropertyMatcher.IsQid(constraintValue)
+                    ? await MatchItemLabelAsync(constraintValue, claimValue, lookup, diacriticInsensitive, cancellationToken)
+                        .ConfigureAwait(false)
+                    : PropertyMatcher.Match(constraintValue, claimValue.DataValue, claimValue.DataType);
                 if (score > bestScore)
                     bestScore = score;
             }
@@ -137,6 +140,55 @@ internal sealed class ReconciliationScorer
         }
 
         return (int)Math.Round(totalScore / effectiveValues.Count);
+    }
+
+    /// <summary>
+    /// Fuzzy-matches a name (e.g. "Neil Gaiman") against the labels and aliases of the item a claim
+    /// points to. Mirrors openrefine-wikibase, where item-valued properties accept names or QIDs.
+    /// </summary>
+    private static async Task<int> MatchItemLabelAsync(
+        string constraintValue,
+        ResolvedPropertyValue claimValue,
+        EntityLookup lookup,
+        bool diacriticInsensitive,
+        CancellationToken cancellationToken)
+    {
+        var ids = PropertyPath.ExtractEntityIds([claimValue]);
+        if (ids.Count == 0)
+            return 0;
+
+        var best = 0;
+        foreach (var item in await lookup.GetAsync(ids, cancellationToken).ConfigureAwait(false))
+        {
+            foreach (var label in WikidataEntityFetcher.GetAllLabelsAllLanguages(item))
+                best = Math.Max(best, FuzzyMatcher.TokenSortRatio(constraintValue, label, diacriticInsensitive));
+        }
+        return best;
+    }
+
+    /// <summary>
+    /// Fetches, once for all candidates, every entity that property scoring will need:
+    /// chained-path intermediates and, for name-valued constraints, the referenced items.
+    /// </summary>
+    public static async Task PrefetchAsync(
+        IReadOnlyCollection<WikidataEntity> candidates,
+        IReadOnlyList<PropertyConstraint>? properties,
+        EntityLookup lookup,
+        CancellationToken cancellationToken)
+    {
+        if (properties is not { Count: > 0 } || candidates.Count == 0)
+            return;
+
+        foreach (var constraint in properties)
+        {
+            if (constraint.Values is not { Count: > 0 })
+                continue;
+
+            var includeTerminalItems = constraint.Values.Any(v => !PropertyMatcher.IsQid(v));
+            await new PropertyPath(constraint.PropertyId)
+                .PrefetchAsync(candidates, lookup, includeTerminalItems, cancellationToken)
+                .ConfigureAwait(false);
+        }
     }
 
     /// <summary>

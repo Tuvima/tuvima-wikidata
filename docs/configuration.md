@@ -11,7 +11,8 @@ var reconciler = new WikidataReconciler(new WikidataReconcilerOptions
     // Search language (default: "en", overridable per-request)
     Language = "en",
 
-    // User-Agent header (required by Wikimedia policy)
+    // User-Agent header. Wikimedia policy asks every app to identify itself with a contact.
+    // Default: WikidataReconcilerOptions.DefaultUserAgent = "Tuvima.Wikidata/{version} (repo URL)"
     UserAgent = "MyApp/1.0 (contact@example.com)",
 
     // HTTP timeout (default: 30 seconds)
@@ -132,6 +133,8 @@ Set `EnableResponseCaching = false` to disable cache lookup/store while keeping 
 
 Provider error envelopes, malformed JSON, and invalid field types in recognized response models are rejected before caching. Existing invalid cache entries are treated as misses and replaced after a successful provider response.
 
+`CachingDelegatingHandler` (an `HttpClient` handler-level cache) is obsolete since v3.10. It sits below the retry pipeline; it now skips MediaWiki error envelopes and non-JSON bodies, but `ResponseCache` is the supported cache.
+
 ## Batch Execution and Request Pacing
 
 `MaxConcurrency` (default 5, clamped internally to 1..1024) limits active work items per batch or variable-size fan-out. This applies to reconciliation batches/streams, multi-author resolution, person batches, Wikipedia language/article/section fan-out, and multilingual search. Person batches also retain their existing cap of three or the configured Wikidata concurrency, whichever is smaller. Nested operations have independent windows; shared host policies still cap actual HTTP concurrency across the reconciler.
@@ -159,9 +162,24 @@ Console.WriteLine($"429s: {snapshot.RateLimitResponses}, retries: {snapshot.Retr
 
 `RecentFailures` and `FailuresByKind` use `WikidataFailureKind` values such as `NoSitelink`, `RateLimited`, `MalformedResponse`, and `ProviderRejected`, so consumers do not need to parse exception strings.
 
+## OpenTelemetry (v3.10)
+
+The library emits traces and metrics through BCL `System.Diagnostics` types, so no telemetry package is needed:
+
+```csharp
+builder.Services.AddOpenTelemetry()
+    .WithTracing(t => t.AddSource(WikidataTelemetry.ActivitySourceName))
+    .WithMetrics(m => m.AddMeter(WikidataTelemetry.MeterName));
+```
+
+- **Traces:** one `Client` span per provider request, named `wikidata {endpoint}`, tagged with `server.address`, `tuvima.wikidata.endpoint`, `url.full`, `tuvima.wikidata.attempts`, `tuvima.wikidata.cache_hit`, `http.response.status_code`, and `error.type` on failure. Retried attempts add an `attempt.failed` event.
+- **Metrics:** `tuvima.wikidata.requests` (counter: attempts and cache hits, tagged by host, endpoint, cache hit, and outcome) and `tuvima.wikidata.request.duration` (histogram, seconds, cache hits excluded).
+
+`RequestLogger` and `Diagnostics` remain available alongside.
+
 ## Per-request Type Hierarchy Depth
 
-`ReconciliationRequest.TypeHierarchyDepth` overrides the global depth for both required and excluded types, in text searches and exact-QID lookups. `null` inherits the global setting; `0` explicitly requests direct type matching only. Positive values limit the number of P279 edges traversed. The hierarchy cache stores direct parents, so an earlier shallow lookup or early match cannot truncate a later traversal.
+`ReconciliationRequest.TypeHierarchyDepth` overrides the global depth for both required and excluded types, in text searches and exact-QID lookups. `null` inherits the global setting; `0` explicitly requests direct type matching only. Positive values limit the number of P279 edges traversed. The hierarchy cache stores direct parents, so an earlier shallow lookup or early match cannot truncate a later traversal. Since v3.10, requests that opt in with a positive depth while the global depth is 0 share one cache per reconciler.
 
 ## Custom Wikibase Instances
 

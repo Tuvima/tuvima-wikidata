@@ -51,7 +51,7 @@ public sealed class WikidataValue
     /// <summary>
     /// For EntityId values: the human-readable label of the referenced entity
     /// in the requested language. Automatically populated by
-    /// <see cref="WikidataReconciler.GetEntitiesAsync"/> (with resolveEntityLabels)
+    /// <see cref="WikidataReconciler.GetEntitiesAsync(IReadOnlyList{string}, bool, string?, CancellationToken)"/> (with resolveEntityLabels)
     /// and <see cref="WikidataReconciler.GetPropertiesAsync"/>.
     /// Can also be set by consumers for custom label resolution scenarios.
     /// </summary>

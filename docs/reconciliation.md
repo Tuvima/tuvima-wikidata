@@ -73,6 +73,10 @@ var results = await reconciler.ReconcileAsync(new ReconciliationRequest
 // Candidates matching both authors score higher than those matching only one
 ```
 
+Item-valued properties (author, director, performer, country, ...) accept either a QID (`"Q210059"`, exact match) or a name (`"Neil Gaiman"`). Since v3.10, names are fuzzy-matched against the referenced item's labels and aliases; earlier versions only matched QIDs, so names scored 0. The referenced items are fetched once per request for all candidates.
+
+Dates compare at the precision stored on Wikidata: a full date needs the same day, a year-precision date the same year, a decade-precision date (`1980s`) the same decade, and century or coarser dates a year within one span.
+
 ### Property Paths
 
 Chain properties to match against related entities:
@@ -89,7 +93,7 @@ var results = await reconciler.ReconcileAsync(new ReconciliationRequest
 });
 ```
 
-As of v2.5.0, chained paths are scored end to end. The reconciler fetches the intermediate entities and evaluates the terminal property values instead of only inspecting the root property.
+As of v2.5.0, chained paths are scored end to end. The reconciler fetches the intermediate entities and evaluates the terminal property values instead of only inspecting the root property. Since v3.10, each layer is fetched once for all candidates in a single batched request.
 
 ## Exclude Types
 
@@ -138,7 +142,7 @@ For interactive UIs with type-ahead search:
 ```csharp
 var entities = await reconciler.SuggestAsync("Douglas");
 var properties = await reconciler.SuggestPropertiesAsync("date");
-var types = await reconciler.SuggestTypesAsync("book");
+var types = await reconciler.SuggestTypesAsync("book"); // classes only (entities with P279) since v3.10
 ```
 
 ## Multi-Type Filtering with CirrusSearch

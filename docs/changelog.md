@@ -1,5 +1,35 @@
 # Changelog
 
+## v3.10.0
+
+Matching quality, OpenRefine data extension, and packaging release. Backward compatible; validated against the 3.9.1 package baseline.
+
+Reconciliation:
+- Item-valued property constraints accept names as well as QIDs. A non-QID value is fuzzy-matched (token-sort ratio, diacritic-aware when requested) against the referenced item's labels and aliases. Fixes the documented `P50 = ["Neil Gaiman", "Terry Pratchett"]` example, which previously scored 0.
+- Scoring prefetches referenced entities through a per-request `EntityLookup`: each chained-path layer and every name-matched item is fetched in one batched `wbgetentities` call for all candidates, instead of one call per candidate.
+- Time constraints honour coarse precision: decade (8) compares by decade; century (7) and wider match within one span of the stored year (Wikidata stores these inconsistently as first or last year). Previously any year matched.
+- `ReconcileBatchAsync` / `ReconcileBatchStreamAsync` run each distinct request once; duplicates share results. Streams yield every input index.
+- Requests that opt into P279 walking with `TypeHierarchyDepth` while the global depth is 0 share one resolver, so its parent cache survives across requests.
+- `SuggestTypesAsync` restricts suggestions to classes (P279 statements), falling back to entity suggestions when none match.
+
+ASP.NET Core:
+- W3C data extension: `POST /reconcile` with `extend={"ids":[...],"properties":[{"id":"P50","settings":{"limit":1}}]}` returns `meta` and `rows`; `GET /reconcile/propose_properties?type=Q5&limit=10` proposes the type's P1963 properties (generic fallback). Values use best rank and map to `{id,name}`, `{date}`, `{float}`, `{str}`. Payloads are validated before provider work.
+- Manifest adds `versions: ["0.1", "0.2"]` and an `extend` section.
+- `AddWikidataReconciliation()`, `AddWikidataReconciliation(WikidataReconcilerOptions, Action<IHttpClientBuilder>?)`, and `AddWikidataReconciliation(Func<IServiceProvider, WikidataReconcilerOptions>, Action<IHttpClientBuilder>?)`. `Persons` is now registered too. The `Action<WikidataReconcilerOptions>` overload is `[Obsolete]`: options are init-only, so it could never change anything. `ServiceCollectionExtensions.HttpClientName` exposes the named client.
+
+Reliability and diagnostics:
+- `CachingDelegatingHandler` skips HTTP-200 MediaWiki `error`/`errors` envelopes and non-JSON bodies. Caching them made every retry replay the cached error. The class is now `[Obsolete]`; use `WikidataReconcilerOptions.ResponseCache`.
+- New `WikidataTelemetry`: `ActivitySource` "Tuvima.Wikidata" (one client span per provider request with host, endpoint, attempts, cache hit, status code, error type, and failed-attempt events) and `Meter` "Tuvima.Wikidata" (`tuvima.wikidata.requests`, `tuvima.wikidata.request.duration`).
+- `WikidataReconcilerOptions.DefaultUserAgent` carries the real package version (was hard-coded `1.0`). Docs now state that apps should set their own User-Agent with contact details.
+- Removed the unused internal `ReconcilerContext.ConcurrencyLimiter`.
+- `wbgetentities` rejects a whole request with `no-such-entity` when any ID does not exist. The entity fetcher now drops the ID named in the error and refetches the rest, so one stale or mistyped QID no longer fails a batch of up to 50; missing entities are simply absent. `LabelsService.GetAsync` returns null again for nonexistent QIDs.
+- MediaWiki `nosuchsection` maps to `WikidataFailureKind.NotFound`; `GetWikipediaSectionContentAsync` returns null for an invalid section instead of throwing.
+
+Packaging and CI:
+- Packages include XML documentation, `.snupkg` symbols, and SourceLink repository metadata; builds are deterministic in CI. Package validation runs against the 3.9.1 baseline.
+- CI publishes the exact packages produced by the pack job instead of packing a second time.
+- 39 new offline tests (271 per target).
+
 ## v3.9.1
 
 Phase 4 structural cleanup and performance baseline.

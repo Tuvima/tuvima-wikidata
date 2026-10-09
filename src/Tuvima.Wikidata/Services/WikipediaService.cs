@@ -571,6 +571,11 @@ public sealed class WikipediaService
         {
             throw;
         }
+        catch (WikidataProviderException ex) when (ex.Kind == WikidataFailureKind.NotFound)
+        {
+            // "nosuchsection" / "missingtitle": the documented contract is a null result.
+            return null;
+        }
         catch (WikidataProviderException)
         {
             throw;

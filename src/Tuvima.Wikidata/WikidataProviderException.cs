@@ -25,4 +25,10 @@ public sealed class WikidataProviderException : Exception
     public HttpStatusCode? StatusCode { get; }
 
     public Uri? RequestUri { get; }
+
+    /// <summary>MediaWiki error code (e.g. "no-such-entity"), when the failure came from an error envelope.</summary>
+    internal string? ProviderCode { get; init; }
+
+    /// <summary>Entity ID named by a "no-such-entity" error, used to retry a batch without it.</summary>
+    internal string? MissingEntityId { get; init; }
 }

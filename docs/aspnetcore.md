@@ -11,8 +11,28 @@ dotnet add package Tuvima.Wikidata.AspNetCore
 ## DI Registration
 
 ```csharp
+// Defaults
 services.AddWikidataReconciliation();
+
+// With options (v3.10)
+services.AddWikidataReconciliation(new WikidataReconcilerOptions
+{
+    UserAgent = "MyApp/1.0 (https://example.org; ops@example.org)",
+    Language = "de",
+    TypeHierarchyDepth = 3
+});
+
+// Built from other services, e.g. IConfiguration (v3.10); the factory runs once
+services.AddWikidataReconciliation(sp => new WikidataReconcilerOptions
+{
+    Language = sp.GetRequiredService<IConfiguration>()["Wikidata:Language"] ?? "en"
+});
+
+// Add handlers to the named HttpClient (retries/throttling are already built in)
+services.AddWikidataReconciliation(options, http => http.AddHttpMessageHandler<MyLoggingHandler>());
 ```
+
+The older `AddWikidataReconciliation(o => ...)` overload taking `Action<WikidataReconcilerOptions>` is obsolete. Options are init-only, so that callback could never change them.
 
 As of v2.0, `AddWikidataReconciliation` also registers each **sub-service** as a singleton, so consumers can inject a narrow slice of the API instead of depending on the whole facade:
 
@@ -60,13 +80,35 @@ app.MapReconciliation("/api/reconcile", options =>
 | Endpoint | Purpose |
 |---|---|
 | `GET /api/reconcile` | Service manifest (name, capabilities, default types) |
-| `POST /api/reconcile` | Reconciliation queries (single or batch) |
+| `POST /api/reconcile` | Reconciliation queries (`query` / `queries`) or data extension (`extend`) |
+| `GET /api/reconcile/propose_properties?type=Q5&limit=10` | Property proposals for data extension |
 | `GET /api/reconcile/suggest/entity?prefix=...` | Entity autocomplete |
 | `GET /api/reconcile/suggest/property?prefix=...` | Property autocomplete |
-| `GET /api/reconcile/suggest/type?prefix=...` | Type/class autocomplete |
+| `GET /api/reconcile/suggest/type?prefix=...` | Type/class autocomplete (classes only) |
 | `GET /api/reconcile/preview?id=Q42` | HTML preview card (thumbnail, description, link) |
 
 All endpoints respect the `Accept-Language` header — a French browser automatically gets French labels without extra configuration.
+
+## Data Extension (v3.10)
+
+OpenRefine's "Add columns from reconciled values" works against this service. The manifest advertises `versions: ["0.1", "0.2"]` and an `extend` section.
+
+- `GET /propose_properties?type=Q5&limit=10` proposes the type's "properties for this type" (P1963). Types without P1963 get a generic list (instance of, subclass of, country, inception, image, official website, Freebase ID).
+- `POST` with form field `extend={"ids":["Q42"],"properties":[{"id":"P569"},{"id":"P800","settings":{"limit":3}}]}` returns:
+
+```json
+{
+  "meta": [{ "id": "P569", "name": "date of birth" }, { "id": "P800", "name": "notable work", "settings": { "limit": 3 } }],
+  "rows": {
+    "Q42": {
+      "P569": [{ "date": "1952-03-11T00:00:00+00:00" }],
+      "P800": [{ "id": "Q25169", "name": "The Hitchhiker's Guide to the Galaxy" }]
+    }
+  }
+}
+```
+
+Values use the best rank (preferred, else normal; deprecated never). Items become `{id, name}`, dates `{date}` (unknown month/day become 01), quantities `{float}`, everything else `{str}`. The `limit` setting caps values per cell (0 = all). Requests are validated before any provider call: ids must be QIDs (at most `MaxBatchSize`), properties must be PIDs (at most `MaxPropertiesPerQuery`).
 
 POST batches use `Reconcile.ReconcileBatchAsync` to bound active queries by `MaxConcurrency`, while shared host policies independently limit HTTP requests. Every entry is validated before any provider work starts. Batch correlation keys and the existing response shapes are preserved, and client cancellation propagates to provider work. Access diagnostics through the injected reconciler's `Diagnostics` property.
 

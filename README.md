@@ -40,14 +40,15 @@ This is the first .NET Wikidata reconciliation library, filling a gap in the eco
 | [`Tuvima.Wikidata`](https://www.nuget.org/packages/Tuvima.Wikidata) | Core library — reconciliation, entity data, Wikipedia content, graph traversal |
 | [`Tuvima.Wikidata.AspNetCore`](https://www.nuget.org/packages/Tuvima.Wikidata.AspNetCore) | ASP.NET Core middleware for hosting a W3C Reconciliation Service API |
 
-Current release: `3.9.1`
+Current release: `3.10.0`
 
-Current offline validation: 232 passing tests on each of .NET 8 and .NET 10 (464 executions). Live integration tests run separately against Wikimedia services.
+Current offline validation: 271 passing tests on each of .NET 8 and .NET 10 (542 executions). Live integration tests run separately against Wikimedia services.
 
 ## Version Details
 
 | Version | Type | Notes |
 |---|---|---|
+| `3.10.0` | Minor | Name-valued item constraints, batched chained-path lookups, OpenRefine data extension, class-only type suggest, DI options overloads, OpenTelemetry tracing/metrics, XML docs and symbols in packages. |
 | `3.9.1` | Patch | Extracts bridge scoring, canonical rollups, and relationships into focused internals; adds offline comparison benchmarks. |
 | `3.9.0` | Minor | Validated ASP.NET requests, configurable request limits, and explicit .NET 8/.NET 10 test coverage. |
 | `3.8.0` | Minor | Bounded response cache, admission-based request pacing, and bounded batch execution. |
@@ -142,6 +143,21 @@ Tune scoring, language, type hierarchy, provider-safe host limits, response cach
 The reconciliation pipeline has four stages: dual search, entity fetching, weighted scoring, and type filtering.
 
 [Architecture overview](docs/architecture.md) — pipeline stages, internal components, design decisions
+
+## What's New in v3.10.0
+
+- **Item properties accept names.** `new PropertyConstraint("P50", ["Neil Gaiman", "Terry Pratchett"])` now fuzzy-matches against the referenced people's labels and aliases. Previously only QIDs matched and names always scored 0. QIDs still match exactly.
+- **Fewer API calls for property constraints.** Chained paths (`P19/P17`) and name-matched items are fetched once per request for all candidates instead of once per candidate.
+- **Date precision respected.** A decade-precision date (`1980s`) no longer matches every year; centuries and millennia compare within one span.
+- **Batch deduplication.** Identical requests in `ReconcileBatchAsync` / `ReconcileBatchStreamAsync` run once and share the result.
+- **Shared subclass cache.** Requests that set `TypeHierarchyDepth` reuse one P279 cache instead of starting cold each time.
+- **`SuggestTypesAsync` returns classes** (entities with P279), so "novel" suggests the class rather than individual novels.
+- **OpenRefine data extension.** The ASP.NET Core endpoint supports `extend` and `propose_properties` ("Add columns from reconciled values"), and the manifest advertises `versions`.
+- **DI that can be configured.** `AddWikidataReconciliation(new WikidataReconcilerOptions { ... })` and a factory overload. The old `Action<WikidataReconcilerOptions>` overload is obsolete because options are init-only.
+- **OpenTelemetry.** `WikidataTelemetry.ActivitySourceName` (spans per provider request) and `WikidataTelemetry.MeterName` (request count and duration), with no extra dependencies.
+- **`CachingDelegatingHandler`** no longer caches HTTP-200 MediaWiki error envelopes (which made retries replay the error) and is obsolete in favour of `ResponseCache`.
+- A nonexistent QID no longer fails a whole entity batch (Wikidata rejects the entire request); it is dropped and the rest are fetched. `Labels.GetAsync` returns null and `GetWikipediaSectionContentAsync` returns null for an invalid section, as documented.
+- Default User-Agent now carries the real package version. Packages ship XML docs, symbols (`.snupkg`), and are validated against 3.9.1 for accidental breaking changes.
 
 ## What's New in v3.9.1
 

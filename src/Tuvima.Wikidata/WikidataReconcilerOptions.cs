@@ -17,10 +17,16 @@ public sealed class WikidataReconcilerOptions
     public string Language { get; init; } = "en";
 
     /// <summary>
-    /// User-Agent header sent with API requests. Should identify your application
-    /// per Wikimedia policy.
+    /// User-Agent header sent with API requests. The default identifies this library and its
+    /// version only. Wikimedia's User-Agent policy asks every application to send its own name
+    /// and a contact URL or email, so production apps should set this, for example
+    /// <c>"MyApp/1.2 (https://example.org; ops@example.org) Tuvima.Wikidata/3.10"</c>.
     /// </summary>
-    public string UserAgent { get; init; } = "Tuvima.Wikidata/1.0 (https://github.com/Tuvima/wikidata)";
+    public string UserAgent { get; init; } = DefaultUserAgent;
+
+    /// <summary>The default User-Agent: <c>Tuvima.Wikidata/{version} (https://github.com/Tuvima/wikidata)</c>.</summary>
+    public static string DefaultUserAgent { get; } =
+        $"Tuvima.Wikidata/{WikidataLibraryInfo.PackageVersion.Split('+')[0]} (https://github.com/Tuvima/wikidata)";
 
     /// <summary>
     /// Per-attempt timeout covering HTTP headers and response body. Default is 30 seconds.

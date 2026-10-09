@@ -15,14 +15,18 @@ internal sealed class ReconcilerContext
     public ReconciliationScorer Scorer { get; }
     public TypeChecker TypeChecker { get; }
     public SubclassResolver? SubclassResolver { get; }
-    public SemaphoreSlim ConcurrencyLimiter { get; }
+
+    /// <summary>
+    /// Shared resolver for requests that opt into P279 walking via a per-request depth while the
+    /// global depth is 0. Shared so its parent cache survives across requests and batch items.
+    /// </summary>
+    public SubclassResolver OnDemandSubclassResolver { get; }
 
     public ReconcilerContext(HttpClient httpClient, WikidataReconcilerOptions options)
     {
         HttpClient = httpClient;
         Options = options;
         Diagnostics = new WikidataDiagnostics();
-        ConcurrencyLimiter = new SemaphoreSlim(Math.Max(1, options.MaxConcurrency));
 
         ResilientClient = new ResilientHttpClient(httpClient, options, Diagnostics);
         SearchClient = new WikidataSearchClient(ResilientClient, options);
@@ -32,5 +36,6 @@ internal sealed class ReconcilerContext
         SubclassResolver = options.TypeHierarchyDepth > 0
             ? new SubclassResolver(EntityFetcher, options.TypeHierarchyDepth)
             : null;
+        OnDemandSubclassResolver = SubclassResolver ?? new SubclassResolver(EntityFetcher, maxDepth: 0);
     }
 }

@@ -8,7 +8,7 @@ Two NuGet packages:
 - `Tuvima.Wikidata` — core library, zero external dependencies
 - `Tuvima.Wikidata.AspNetCore` — W3C Reconciliation API middleware for ASP.NET Core
 
-## Architecture (v3.9.1)
+## Architecture (v3.10.0)
 
 `WikidataReconciler` is a thin **facade** that owns a shared `ReconcilerContext` (HttpClient, options, search/fetcher/scorer/type-checker collaborators, shared provider-safe HTTP pipeline, response cache hook, diagnostics, and per-host limiters) and exposes focused **sub-services** as properties:
 
@@ -56,8 +56,10 @@ All v1 top-level methods on `WikidataReconciler` remain as delegating shims forw
 
 1. **Dual Search** — `wbsearchentities` (autocomplete) and `action=query&list=search` (full-text) run concurrently, results merged with full-text first. When types are specified, a CirrusSearch `haswbstatement:P31=QID` query also runs for better type recall. Multi-language search runs full-text once per query and fans out only the autocomplete path per language. Diacritic-insensitive mode adds ASCII-normalized search variants.
 2. **Entity Fetching** — `wbgetentities` batched (max 50), fetches labels/descriptions/aliases/claims with language fallback. Optionally includes sitelinks for display-friendly label matching.
-3. **Scoring** — `score = (label_score * 1.0 + sum(prop_score * 0.4)) / (1.0 + 0.4 * num_properties)`. Type penalty halves score if type requested but entity has no P31. Unique ID shortcut sets score to 100 on exact authority ID match. Diacritic-insensitive scoring strips accents before comparison. Multi-value constraints average the best match score for each constraint value (e.g., 2 of 2 authors match = full score, 1 of 2 = half). Chained property constraints like `P131/P17` are resolved end to end by fetching the intermediate entities and scoring the terminal values.
-4. **Type Filtering** — Direct P31 match (multi-type OR logic) or P279 subclass walk (configurable depth, per-request override). Sort by score desc, QID number asc as tiebreaker.
+3. **Scoring** — `score = (label_score * 1.0 + sum(prop_score * 0.4)) / (1.0 + 0.4 * num_properties)`. Type penalty halves score if type requested but entity has no P31. Unique ID shortcut sets score to 100 on exact authority ID match. Diacritic-insensitive scoring strips accents before comparison. Multi-value constraints average the best match score for each constraint value (e.g., 2 of 2 authors match = full score, 1 of 2 = half). Item-valued constraints accept a QID (exact match) or a name such as `"Neil Gaiman"`, which is fuzzy-matched against the referenced item's labels and aliases (v3.10). Chained property constraints like `P131/P17` are resolved end to end. Before scoring, a per-request `EntityLookup` fetches each chained-path layer and every name-matched item once for all candidates, so referenced entities cost one batched `wbgetentities` call per layer rather than one per candidate. Time constraints compare at the stored precision: decades by decade, centuries and wider within one span.
+4. **Type Filtering** — Direct P31 match (multi-type OR logic) or P279 subclass walk (configurable depth, per-request override). One `SubclassResolver` per reconciler keeps its P279 parent cache across requests, including requests that opt in via a per-request depth. Sort by score desc, QID number asc as tiebreaker.
+
+Batches (`ReconcileBatchAsync` / `ReconcileBatchStreamAsync`) run each distinct request once (`Internal/ReconciliationRequestGroups.cs`); identical requests share the result. Equality covers every request option, with query cleaners compared by delegate identity.
 
 ## Project Structure
 
@@ -117,7 +119,8 @@ src/
 │   ├── BridgeRelationshipEdge.cs            # Auditable relationship edges with property IDs (v3.0)
 │   ├── SectionContent.cs                    # Title, Content (structured section content for subsection handling)
 │   ├── QueryCleaners.cs                     # Built-in title pre-cleaning functions
-│   ├── CachingDelegatingHandler.cs          # Abstract HTTP caching base class
+│   ├── CachingDelegatingHandler.cs          # [Obsolete in v3.10] HTTP caching base class; skips MediaWiki error envelopes. Prefer ResponseCache
+│   ├── WikidataTelemetry.cs                 # ActivitySource + Meter names for OpenTelemetry (v3.10)
 │   ├── Services/                            # Sub-service facade layer (v2.0.0)
 │   │   ├── ReconciliationService.cs         # Reconcile, batch, stream, suggest
 │   │   ├── EntityService.cs                 # Entities, properties, external ID, labels, images, revisions, changes
@@ -139,7 +142,9 @@ src/
 │       ├── ReconcilerContext.cs             # Shared state holder for facade and all sub-services
 │       ├── WikidataSearchClient.cs          # Dual search + suggest + external ID lookup + type-filtered + multi-language
 │       ├── WikidataEntityFetcher.cs         # Entity fetching with rank hierarchy + sitelinks + provider-safe chunking
-│       ├── ReconciliationScorer.cs          # Weighted scoring formula + unique ID shortcut
+│       ├── ReconciliationScorer.cs          # Weighted scoring formula + unique ID shortcut + item-label matching + prefetch
+│       ├── EntityLookup.cs                  # Per-request memo of referenced entities (chained-path layers, name-matched items)
+│       ├── ReconciliationRequestGroups.cs   # Groups identical batch requests so each runs once
 │       ├── TypeChecker.cs                   # P31 type matching (sync + async with P279)
 │       ├── SubclassResolver.cs              # P279 hierarchy BFS with ConcurrentDictionary cache
 │       ├── ResilientHttpClient.cs           # Shared pipeline: retries, Retry-After, maxlag, cache, coalescing, per-host throttles
@@ -163,9 +168,11 @@ src/
 │           ├── RecentChangesResponse.cs      # Recent changes API response
 │           └── WikipediaSummaryResponse.cs   # Wikipedia summary REST/batch API response
 ├── Tuvima.Wikidata.AspNetCore/              # ASP.NET Core companion
-│   ├── ReconciliationEndpoints.cs           # W3C API endpoints + suggest + preview + W3C models
+│   ├── ReconciliationEndpoints.cs           # W3C API endpoints + suggest + preview + data extension wiring + W3C models
+│   ├── DataExtension.cs                     # W3C data extension: propose_properties (P1963) + extend rows/meta (v3.10)
+│   ├── ReconciliationRequestReader.cs       # Bounded form reading + query/extend payload validation
 │   ├── ReconciliationServiceOptions.cs      # Service name, identifier space, default types
-│   └── ServiceCollectionExtensions.cs       # AddWikidataReconciliation() DI registration
+│   └── ServiceCollectionExtensions.cs       # AddWikidataReconciliation(): parameterless, options instance, or factory (v3.10)
 tests/
 └── Tuvima.Wikidata.Tests/
     ├── IntegrationTests.cs                  # Live Wikidata API tests (Category=Integration)
@@ -180,6 +187,9 @@ tests/
     ├── BridgeResolutionServiceTests.cs      # Unit tests for bridge batching, ranking, rollups, and Wikipedia summary failures
     ├── SeriesManifestServiceTests.cs        # Unit tests for series discovery, ordering, provenance, warnings
     ├── SeriesManifestIntegrationTests.cs    # Live The Expanse series manifest shape test
+    ├── ScoringImprovementsTests.cs          # v3.10: item-label matching, batching, dedupe, date precision, type suggest, cache handler
+    ├── DependencyInjectionTests.cs          # v3.10: AddWikidataReconciliation overloads
+    ├── TelemetryTests.cs                    # v3.10: ActivitySource spans and Meter instruments
     ├── TestHttpMessageHandler.cs            # Test HTTP shim for deterministic service tests
     └── TestPayloads.cs                      # Shared JSON payload builders for service tests
 docs/
@@ -205,11 +215,11 @@ New code should call sub-services via `reconciler.{Service}.{Method}(...)`. All 
 | `ReconcileAsync(query)` | Match text to Wikidata entities |
 | `ReconcileAsync(query, type)` | Match with type filter (e.g., "Q5" for humans) |
 | `ReconcileAsync(ReconciliationRequest)` | Full options: `Types` (plural only in v2), properties, language/languages, limit, exclude types, diacritics, cleaners |
-| `ReconcileBatchAsync(requests)` | Parallel batch with concurrency limiting |
+| `ReconcileBatchAsync(requests)` | Parallel batch with concurrency limiting; identical requests run once |
 | `ReconcileBatchStreamAsync(requests)` | `IAsyncEnumerable` — yields results as they complete |
 | `SuggestAsync(prefix)` | Entity autocomplete |
 | `SuggestPropertiesAsync(prefix)` | Property autocomplete |
-| `SuggestTypesAsync(prefix)` | Type/class autocomplete |
+| `SuggestTypesAsync(prefix)` | Type/class autocomplete — restricted to classes (P279), falls back to entity suggestions if none |
 
 ### `reconciler.Entities` — `EntityService`
 
@@ -326,7 +336,7 @@ Typed provider failures use `WikidataFailureKind` (`NotFound`, `NoSitelink`, `Ra
 |---|---|---|
 | `ApiEndpoint` | Wikidata API | Custom Wikibase endpoint support |
 | `Language` | `"en"` | Default search language (overridable per-request) |
-| `UserAgent` | Library default | Required by Wikimedia policy |
+| `UserAgent` | `Tuvima.Wikidata/{version} (repo URL)` (`DefaultUserAgent`) | Apps should set their own name + contact per Wikimedia policy |
 | `Timeout` | 30s | Per-attempt timeout for headers and body; supplied HttpClient's shorter limit wins |
 | `TypePropertyId` | `"P31"` | Instance-of property (custom Wikibase may differ) |
 | `PropertyWeight` | 0.4 | Weight per property match (label = 1.0) |
@@ -356,13 +366,16 @@ Typed provider failures use `WikidataFailureKind` (`NotFound`, `NoSitelink`, `Ra
 | Endpoint | Purpose |
 |---|---|
 | `GET /reconcile` | W3C service manifest |
-| `POST /reconcile` | Reconciliation queries (single or batch) |
+| `POST /reconcile` | Reconciliation queries (`query` / `queries`) or data extension (`extend`) |
+| `GET /reconcile/propose_properties?type=Q5&limit=10` | Data extension property proposals (from the type's P1963, generic fallback) |
 | `GET /reconcile/suggest/entity?prefix=...` | Entity autocomplete |
 | `GET /reconcile/suggest/property?prefix=...` | Property autocomplete |
 | `GET /reconcile/suggest/type?prefix=...` | Type autocomplete |
 | `GET /reconcile/preview?id=Q42` | HTML preview card |
 
-All endpoints respect the `Accept-Language` header.
+All endpoints respect the `Accept-Language` header. The manifest advertises `versions: ["0.1", "0.2"]` and an `extend` section with a `limit` property setting. Extend requests are validated (QID ids, PID properties, `MaxBatchSize` ids, `MaxPropertiesPerQuery` properties) before provider work; values use best rank (preferred, else normal, never deprecated) and map to `{id,name}`, `{date}`, `{float}`, or `{str}` cells.
+
+DI: `AddWikidataReconciliation()`, `AddWikidataReconciliation(options, configureHttpClient?)`, and `AddWikidataReconciliation(sp => options, configureHttpClient?)` register the facade, all ten sub-services, and the named HttpClient `ServiceCollectionExtensions.HttpClientName`. The old `Action<WikidataReconcilerOptions>` overload is `[Obsolete]` (options are init-only, so it could never change anything).
 
 ## Build & Test
 
@@ -383,7 +396,7 @@ dotnet test
 dotnet pack --configuration Release
 ```
 
-Offline validation: 232 passing tests per target (.NET 8 and .NET 10), 464 executions. Live integration tests run separately against Wikimedia services.
+Offline validation: 271 passing tests per target (.NET 8 and .NET 10), 542 executions. Live integration tests run separately against Wikimedia services.
 
 ## Key Design Decisions
 
@@ -398,6 +411,7 @@ Offline validation: 232 passing tests per target (.NET 8 and .NET 10), 464 execu
 - **In-flight request coalescing** — identical active requests share one network call and one response.
 - **maxlag parameter** — appended to every Wikidata API request per Wikimedia bot etiquette.
 - **Chained property paths** — property constraints like `P131/P17` are resolved end to end during scoring by fetching the intermediate entities and evaluating the terminal claim values.
+- **Telemetry without dependencies** — `WikidataTelemetry.ActivitySourceName` emits one client span per provider request (host, endpoint, attempts, cache hit, error type, failed-attempt events); `WikidataTelemetry.MeterName` emits `tuvima.wikidata.requests` and `tuvima.wikidata.request.duration`. Both use BCL `System.Diagnostics` types.
 - **Graph module: no RDF** — adjacency lists and BFS, not RDF/SPARQL. The operations (pathfinding, family trees, cross-media) don't require a graph database engine.
 
 ## Wikidata API Endpoints Used
@@ -445,23 +459,35 @@ Offline validation: 232 passing tests per target (.NET 8 and .NET 10), 464 execu
 - `tests/Tuvima.Wikidata.Tests/BridgeContractTests.cs` adds seven public behavior checks, verified before and after extraction.
 - `benchmarks/Tuvima.Wikidata.Benchmarks/` is a standalone non-packable net8.0/net10.0 console project, outside the solution and CI test gates. It uses local provider fixtures, measures timing/allocations, and emits representative result/public API fingerprints. Commands and baseline evidence are in `docs/performance.md`; benchmark output defaults to stdout or an explicitly supplied file.
 
+## Phase 5 Matching, OpenRefine, and Packaging (v3.10.0)
+
+- Name-valued item constraints, batched chained-path/item prefetch, decade/century date precision, shared P279 resolver, and batch request deduplication (see Reconciliation Pipeline).
+- `SuggestTypesAsync` returns classes; W3C data extension (`extend` + `propose_properties`) and manifest `versions`.
+- `AddWikidataReconciliation` options-instance and factory overloads; the `Action` overload is obsolete.
+- `CachingDelegatingHandler` no longer caches HTTP-200 MediaWiki error envelopes or non-JSON bodies, and is obsolete in favour of `ResponseCache`.
+- Default User-Agent carries the real package version; unused `ReconcilerContext.ConcurrencyLimiter` removed.
+- `wbgetentities` fails a whole request with `no-such-entity` when any ID does not exist. `WikidataEntityFetcher` drops the ID named in the error and refetches the rest, so nonexistent QIDs are simply absent (Labels return null). `nosuchsection` maps to `NotFound`, so `GetWikipediaSectionContentAsync` returns null for an invalid section.
+- Packages ship XML docs (CS1591 suppressed for undocumented DTO members), `.snupkg` symbols, SourceLink metadata, and package validation against the 3.9.1 baseline. CI publishes the exact packed artifact.
+
 ## CI/CD
 
 GitHub Actions workflow (`.github/workflows/ci.yml`):
 - Build SDK: .NET 10, with .NET 8 and .NET 10 runtimes installed
 - Explicit test-target matrix: net8.0 and net10.0; offline core/endpoint tests gate every push/PR, with build warnings treated as errors and per-target TRX artifacts
 - Integration tests run once on .NET 10 in a separate `continue-on-error` job (depend on Wikidata availability)
-- NuGet pack as build artifact
-- Auto-publish to NuGet on every push to main (requires `NUGET_API_KEY` secret)
+- NuGet pack (`.nupkg` + `.snupkg`, package validation against `PackageValidationBaselineVersion`) as build artifact
+- Auto-publish the packed artifact to NuGet on every push to main (requires `NUGET_API_KEY` secret)
 
 ## Mandatory Rules
 
-1. **Documentation on every feature change.** Every new public method, property, option, or behavior change MUST be reflected in BOTH `AGENTS.md` (architecture, API reference, project structure) AND `README.md` / relevant `docs/` files. Never ship a feature without updating docs.
+1. **Documentation on every feature change.** Every new public method, property, option, or behavior change MUST be reflected in BOTH `AGENTS.md` / `CLAUDE.md` (kept identical apart from the title; architecture, API reference, project structure) AND `README.md` / relevant `docs/` files. Never ship a feature without updating docs.
 
 2. **Version bump on every feature change.** Any commit that adds, removes, or changes public API surface MUST increment the package version in BOTH `.csproj` files (`Tuvima.Wikidata` and `Tuvima.Wikidata.AspNetCore`). Use semantic versioning:
    - **Patch** (x.y.**Z**) — bug fixes, internal refactors, doc-only changes
    - **Minor** (x.**Y**.0) — new features, new public methods/properties/options, backward-compatible additions
    - **Major** (**X**.0.0) — breaking changes to existing public API
+
+   After publishing a release, move `PackageValidationBaselineVersion` in both `.csproj` files to that version.
 
 3. **Tests must pass.** Run `dotnet build` (0 warnings, 0 errors) and `dotnet test --filter "Category!=Integration"` (all pass) before committing.
 

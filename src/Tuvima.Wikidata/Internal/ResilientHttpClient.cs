@@ -159,6 +159,29 @@ internal sealed class ResilientHttpClient : IDisposable
 
     private async Task<string> GetStringCoreAsync(ProviderRequest request, CancellationToken cancellationToken)
     {
+        using var activity = WikidataTelemetry.ActivitySource.StartActivity(
+            "wikidata " + request.Endpoint, ActivityKind.Client);
+        if (activity is not null)
+        {
+            activity.SetTag("server.address", request.Host);
+            activity.SetTag("tuvima.wikidata.endpoint", request.Endpoint);
+            activity.SetTag("url.full", request.Uri.ToString());
+        }
+
+        try
+        {
+            return await GetStringWithRetriesAsync(request, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (activity is not null)
+        {
+            activity.SetStatus(ActivityStatusCode.Error, ex.Message);
+            activity.SetTag("error.type", ex is WikidataProviderException provider ? provider.Kind.ToString() : ex.GetType().Name);
+            throw;
+        }
+    }
+
+    private async Task<string> GetStringWithRetriesAsync(ProviderRequest request, CancellationToken cancellationToken)
+    {
         var cache = _options.EnableResponseCaching && request.IsCacheable()
             ? _options.ResponseCache
             : null;
@@ -261,7 +284,11 @@ internal sealed class ResilientHttpClient : IDisposable
             catch (ProviderResponseException ex)
             {
                 var failure = new WikidataProviderException(ex.Error.Kind,
-                    $"The provider rejected {request.Endpoint}: {ex.Error.Code}.", ex.StatusCode, ex.RequestUri);
+                    $"The provider rejected {request.Endpoint}: {ex.Error.Code}.", ex.StatusCode, ex.RequestUri)
+                {
+                    ProviderCode = ex.Error.Code,
+                    MissingEntityId = ex.Error.EntityId
+                };
                 stopwatch.Stop();
                 _diagnostics.RecordRequest(request.Host, request.Endpoint, stopwatch.Elapsed);
                 _diagnostics.RecordFailure(failure.Kind, request.Endpoint, failure.Message);
@@ -346,6 +373,32 @@ internal sealed class ResilientHttpClient : IDisposable
         bool fromCache,
         WikidataFailureKind? failureKind)
     {
+        var outcome = failureKind?.ToString() ?? "Success";
+        var tags = new TagList
+        {
+            { "server.address", request.Host },
+            { "tuvima.wikidata.endpoint", request.Endpoint },
+            { "tuvima.wikidata.cache_hit", fromCache },
+            { "tuvima.wikidata.outcome", outcome }
+        };
+        WikidataTelemetry.Requests.Add(1, tags);
+        if (!fromCache)
+            WikidataTelemetry.RequestDuration.Record(latency.TotalSeconds, tags);
+
+        if (Activity.Current is { } activity && activity.Source == WikidataTelemetry.ActivitySource)
+        {
+            activity.SetTag("tuvima.wikidata.cache_hit", fromCache);
+            activity.SetTag("tuvima.wikidata.attempts", attempt + 1);
+            if (statusCode is not null)
+                activity.SetTag("http.response.status_code", (int)statusCode.Value);
+            if (failureKind is not null)
+                activity.AddEvent(new ActivityEvent("attempt.failed", tags: new ActivityTagsCollection
+                {
+                    { "tuvima.wikidata.attempt", attempt },
+                    { "tuvima.wikidata.outcome", outcome }
+                }));
+        }
+
         _options.RequestLogger?.Invoke(new WikidataHttpLogEntry(
             request.Host,
             request.Endpoint,

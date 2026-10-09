@@ -60,6 +60,16 @@ internal sealed class WikidataEntityFetcher
     }
 
     /// <summary>
+    /// Fetches entity claims only (no terms), e.g. to check whether candidates are classes.
+    /// </summary>
+    public async Task<Dictionary<string, WikidataEntity>> FetchClaimsOnlyAsync(
+        IReadOnlyList<string> ids, CancellationToken cancellationToken = default)
+    {
+        return await FetchInBatchesAsync(ids, null, "claims", cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// Fetches entities with sitelinks only (lightweight, for Wikipedia URL resolution).
     /// </summary>
     public async Task<Dictionary<string, WikidataEntity>> FetchEntitiesWithSitelinksAsync(
@@ -110,7 +120,24 @@ internal sealed class WikidataEntityFetcher
             url += $"&languages={Uri.EscapeDataString(languageParam)}";
         }
 
-        var json = await _httpClient.GetStringAsync(url, cancellationToken).ConfigureAwait(false);
+        string json;
+        try
+        {
+            json = await _httpClient.GetStringAsync(url, cancellationToken).ConfigureAwait(false);
+        }
+        catch (WikidataProviderException ex) when (
+            ex.Kind == WikidataFailureKind.NotFound &&
+            ex.MissingEntityId is { } missing &&
+            ids.RemoveAll(id => string.Equals(id, missing, StringComparison.OrdinalIgnoreCase)) > 0)
+        {
+            // Wikibase fails the whole request when any ID does not exist. Drop the named ID and
+            // fetch the rest, so one stale reference cannot break a batch of up to 50 entities.
+            // A missing entity is simply absent from the result, as for "missing" entries.
+            return ids.Count == 0
+                ? new Dictionary<string, WikidataEntity>()
+                : await FetchBatchAsync(ids, language, props, cancellationToken).ConfigureAwait(false);
+        }
+
         var response = ProviderJson.Deserialize(json, WikidataJsonContext.Default.WbGetEntitiesResponse, "wbgetentities");
 
         return response?.Entities ?? new Dictionary<string, WikidataEntity>();

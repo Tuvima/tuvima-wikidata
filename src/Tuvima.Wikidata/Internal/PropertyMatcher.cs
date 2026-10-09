@@ -36,6 +36,8 @@ internal static class PropertyMatcher
         };
     }
 
+    internal static bool IsQid(string value) => QidPattern.IsMatch(value.Trim());
+
     private static int MatchItem(string queryValue, JsonElement element)
     {
         // Extract the QID from the item value
@@ -44,12 +46,8 @@ internal static class PropertyMatcher
 
         var entityId = idProp.GetString() ?? "";
 
-        // If query is a QID, do exact comparison
-        if (QidPattern.IsMatch(queryValue.Trim()))
-            return string.Equals(queryValue.Trim(), entityId, StringComparison.OrdinalIgnoreCase) ? 100 : 0;
-
-        // Otherwise fuzzy match against the item label (would need label fetching)
-        // For now, treat as string comparison against the ID
+        // QID comparison only. Name-valued constraints (e.g. "Neil Gaiman") are scored against the
+        // referenced item's labels by ReconciliationScorer, which has access to fetched entities.
         return string.Equals(queryValue.Trim(), entityId, StringComparison.OrdinalIgnoreCase) ? 100 : 0;
     }
 
@@ -129,6 +127,10 @@ internal static class PropertyMatcher
         if (!TryParseQueryDate(queryValue.Trim(), out var queryYear, out var queryMonth, out var queryDay))
             return 0;
 
+        // Coarser than a year (8=decade, 7=century, 6=millennium, ...): compare at that granularity.
+        if (precision < 9)
+            return MatchCoarseYear(queryYear, entityYear, precision) ? 100 : 0;
+
         // Compare based on precision: 9=year, 10=year+month, 11=full date
         if (precision >= 9 && entityYear != queryYear)
             return 0;
@@ -139,6 +141,23 @@ internal static class PropertyMatcher
 
         return 100;
     }
+
+    /// <summary>
+    /// Decades match by floor(year / 10) ("1980s" is stored as 1980). Centuries and wider are
+    /// stored inconsistently on Wikidata (first or last year of the span), so they match when
+    /// the query lies within one span width of the stored year.
+    /// </summary>
+    internal static bool MatchCoarseYear(int queryYear, int entityYear, int precision)
+    {
+        if (precision == 8)
+            return FloorDiv(queryYear, 10) == FloorDiv(entityYear, 10);
+
+        var span = Math.Pow(10, Math.Min(9, 9 - precision));
+        return Math.Abs((double)queryYear - entityYear) < span;
+    }
+
+    private static int FloorDiv(int value, int divisor)
+        => (int)Math.Floor((double)value / divisor);
 
     private static bool TryParseWikidataTime(string timeStr, out int year, out int month, out int day)
     {

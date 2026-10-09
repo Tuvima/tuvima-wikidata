@@ -198,6 +198,131 @@ public class ReconciliationEndpointTests
         await stopped.Task.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
+    [Fact]
+    public async Task Manifest_AdvertisesVersionsAndDataExtension()
+    {
+        await using var host = await EndpointHost.StartAsync();
+        using var json = JsonDocument.Parse(await host.Client.GetStringAsync("/reconcile"));
+        var root = json.RootElement;
+
+        Assert.Equal(["0.1", "0.2"], root.GetProperty("versions").EnumerateArray().Select(v => v.GetString()));
+        var propose = root.GetProperty("extend").GetProperty("propose_properties");
+        Assert.EndsWith("/reconcile", propose.GetProperty("service_url").GetString());
+        Assert.Equal("/propose_properties", propose.GetProperty("service_path").GetString());
+        Assert.Equal("limit", root.GetProperty("extend").GetProperty("property_settings")[0].GetProperty("name").GetString());
+    }
+
+    [Fact]
+    public async Task Extend_ReturnsBestRankValuesWithLabelsAndTypedCells()
+    {
+        await using var host = await EndpointHost.StartAsync(handler: (request, _) =>
+        {
+            var ids = IdsParam(request);
+            object payload = ids switch
+            {
+                "Q1|Q404" => TestPayloads.EntityResponse(TestPayloads.Entity("Q1", "Good Omens", claims: TestPayloads.Claims(
+                    ("P50", "wikibase-item", TestPayloads.ItemDataValue("Q210059"), "normal"),
+                    ("P50", "wikibase-item", TestPayloads.ItemDataValue("Q46248"), "normal"),
+                    ("P50", "wikibase-item", TestPayloads.ItemDataValue("Q999"), "deprecated"),
+                    ("P577", "time", TestPayloads.TimeDataValue("+1990-05-00T00:00:00Z", precision: 10), "normal"),
+                    ("P1104", "quantity", new { value = new { amount = "+288", unit = "1" }, type = "quantity" }, "normal")))),
+                "Q210059|Q46248|Q999" => TestPayloads.EntityResponse(
+                    TestPayloads.Entity("Q210059", "Neil Gaiman"), TestPayloads.Entity("Q46248", "Terry Pratchett")),
+                "P1104|P50|P577" => TestPayloads.EntityResponse(
+                    TestPayloads.Entity("P50", "author"), TestPayloads.Entity("P577", "publication date"),
+                    TestPayloads.Entity("P1104", "number of pages")),
+                _ => throw new InvalidOperationException($"Unexpected ids: {ids}")
+            };
+            return Task.FromResult(TestHttpMessageHandler.Json((string)payload));
+        });
+
+        using var response = await host.Client.PostAsync("/reconcile", Form("extend",
+            """{"ids":["Q1","Q404"],"properties":[{"id":"P50","settings":{"limit":"1"}},{"id":"P50"},{"id":"P577"},{"id":"P1104"}]}"""));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = json.RootElement;
+
+        Assert.Equal("author", root.GetProperty("meta")[0].GetProperty("name").GetString());
+        var row = root.GetProperty("rows").GetProperty("Q1");
+        var authors = row.GetProperty("P50");
+        Assert.Equal(2, authors.GetArrayLength());
+        Assert.Equal("Neil Gaiman", authors[0].GetProperty("name").GetString());
+        Assert.Equal("Q46248", authors[1].GetProperty("id").GetString());
+        Assert.Equal("1990-05-01T00:00:00+00:00", row.GetProperty("P577")[0].GetProperty("date").GetString());
+        Assert.Equal(288, row.GetProperty("P1104")[0].GetProperty("float").GetDouble());
+        Assert.Equal(0, root.GetProperty("rows").GetProperty("Q404").GetProperty("P50").GetArrayLength());
+    }
+
+    [Theory]
+    [InlineData("{bad")]
+    [InlineData("{}")]
+    [InlineData("""{"ids":[],"properties":[{"id":"P31"}]}""")]
+    [InlineData("""{"ids":["Q1"],"properties":[]}""")]
+    [InlineData("""{"ids":["Q1"],"properties":[{"id":"Q5"}]}""")]
+    [InlineData("""{"ids":["P31"],"properties":[{"id":"P31"}]}""")]
+    [InlineData("""{"ids":["Q1"],"properties":[null]}""")]
+    public async Task Extend_InvalidPayload_Returns400WithoutProviderRequests(string json)
+    {
+        await using var host = await EndpointHost.StartAsync();
+        using var response = await host.Client.PostAsync("/reconcile", Form("extend", json));
+        await AssertProblem(response, HttpStatusCode.BadRequest);
+        Assert.Empty(host.Provider.RequestedUris);
+    }
+
+    [Fact]
+    public async Task ProposeProperties_UsesPropertiesForThisType()
+    {
+        await using var host = await EndpointHost.StartAsync(handler: (request, _) =>
+        {
+            var ids = IdsParam(request);
+            var payload = ids switch
+            {
+                "Q5" => TestPayloads.EntityResponse(TestPayloads.Entity("Q5", "human", claims: TestPayloads.Claims(
+                    ("P1963", "wikibase-property", PropertyDataValue("P569"), "normal"),
+                    ("P1963", "wikibase-property", PropertyDataValue("P19"), "normal"),
+                    ("P1963", "wikibase-property", PropertyDataValue("P27"), "normal")))),
+                "P19|P27|P569" => TestPayloads.EntityResponse(
+                    TestPayloads.Entity("P569", "date of birth"), TestPayloads.Entity("P19", "place of birth"),
+                    TestPayloads.Entity("P27", "country of citizenship")),
+                _ => throw new InvalidOperationException($"Unexpected ids: {ids}")
+            };
+            return Task.FromResult(TestHttpMessageHandler.Json(payload));
+        });
+
+        using var json = JsonDocument.Parse(await host.Client.GetStringAsync("/reconcile/propose_properties?type=Q5&limit=2"));
+        var root = json.RootElement;
+
+        Assert.Equal("Q5", root.GetProperty("type").GetString());
+        var properties = root.GetProperty("properties");
+        Assert.Equal(2, properties.GetArrayLength());
+        Assert.Equal("P569", properties[0].GetProperty("id").GetString());
+        Assert.Equal("date of birth", properties[0].GetProperty("name").GetString());
+    }
+
+    [Theory]
+    [InlineData("type=human")]
+    [InlineData("type=Q5&limit=0")]
+    [InlineData("type=Q5&limit=abc")]
+    [InlineData("type=Q5&limit=500")]
+    public async Task ProposeProperties_InvalidParameters_Return400(string query)
+    {
+        await using var host = await EndpointHost.StartAsync();
+        using var response = await host.Client.GetAsync($"/reconcile/propose_properties?{query}");
+        await AssertProblem(response, HttpStatusCode.BadRequest);
+        Assert.Empty(host.Provider.RequestedUris);
+    }
+
+    private static string IdsParam(HttpRequestMessage request)
+    {
+        var query = Uri.UnescapeDataString(request.RequestUri!.Query);
+        var start = query.IndexOf("ids=", StringComparison.Ordinal) + 4;
+        var end = query.IndexOf('&', start);
+        return end < 0 ? query[start..] : query[start..end];
+    }
+
+    private static object PropertyDataValue(string pid)
+        => new { value = new { id = pid, entity_type = "property" }, type = "wikibase-entityid" };
+
     private static FormUrlEncodedContent Form(string field, string json)
         => new([KeyValuePair.Create(field, json)]);
 

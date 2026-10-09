@@ -55,9 +55,10 @@ public sealed class ReconciliationService
 
         // Resolve per-request subclass resolver
         var subclassResolver = _ctx.SubclassResolver;
-        if (request.TypeHierarchyDepth.HasValue && request.TypeHierarchyDepth.Value > 0 && subclassResolver == null)
+        if (request.TypeHierarchyDepth is > 0 && subclassResolver == null)
         {
-            subclassResolver = new SubclassResolver(_ctx.EntityFetcher, request.TypeHierarchyDepth.Value);
+            // Depth is passed per call, so the shared resolver keeps its P279 cache across requests.
+            subclassResolver = _ctx.OnDemandSubclassResolver;
         }
 
         if (TryNormalizeQid(searchQuery, out var exactQid))
@@ -121,7 +122,12 @@ public sealed class ReconciliationService
         var entities = await _ctx.EntityFetcher.FetchEntitiesAllLanguagesAsync(
             candidateIds, options.IncludeSitelinkLabels, cancellationToken).ConfigureAwait(false);
 
-        // Step 3: Score and filter candidates
+        // Step 3: Score and filter candidates. Referenced entities (chained-path intermediates and
+        // items named by text constraints) are fetched once for all candidates, not per candidate.
+        var lookup = new EntityLookup(_ctx.EntityFetcher, language);
+        await ReconciliationScorer.PrefetchAsync(entities.Values, request.Properties, lookup, cancellationToken)
+            .ConfigureAwait(false);
+
         var scored = new List<(string Id, Internal.Json.WikidataEntity Entity, ScoringResult Scoring, List<string> Types, TypeMatchResult TypeResult)>();
 
         foreach (var id in candidateIds)
@@ -141,7 +147,7 @@ public sealed class ReconciliationService
                 entity,
                 language,
                 request.Properties,
-                _ctx.EntityFetcher,
+                lookup,
                 cancellationToken,
                 request.DiacriticInsensitive).ConfigureAwait(false);
 
@@ -264,28 +270,40 @@ public sealed class ReconciliationService
 
     /// <summary>
     /// Reconciles multiple queries in parallel, respecting the configured concurrency limit.
-    /// Results preserve input order. Failure or cancellation stops pending work.
+    /// Results preserve input order. Identical requests in the batch run once and share a result.
+    /// Failure or cancellation stops pending work.
     /// </summary>
     public async Task<IReadOnlyList<IReadOnlyList<ReconciliationResult>>> ReconcileBatchAsync(
         IReadOnlyList<ReconciliationRequest> requests, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(requests);
-        return await BoundedAsync.SelectAsync(requests, _ctx.Options.MaxConcurrency,
+        var groups = ReconciliationRequestGroups.Create(requests);
+        var unique = await BoundedAsync.SelectAsync(groups.Representatives, _ctx.Options.MaxConcurrency,
             (request, token) => ReconcileAsync(request, token), cancellationToken).ConfigureAwait(false);
+
+        var results = new IReadOnlyList<ReconciliationResult>[requests.Count];
+        for (var i = 0; i < results.Length; i++)
+            results[i] = unique[groups.GroupOf[i]];
+        return results;
     }
 
     /// <summary>
     /// Reconciles multiple queries as a streaming async enumerable.
     /// Starts a bounded window of work and yields completed items with their input indices.
+    /// Identical requests run once; each of their input indices is yielded when that run completes.
     /// Disposing the enumerator early cancels and observes outstanding work.
     /// </summary>
     public async IAsyncEnumerable<(int Index, IReadOnlyList<ReconciliationResult> Results)> ReconcileBatchStreamAsync(
         IReadOnlyList<ReconciliationRequest> requests, [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(requests);
-        await foreach (var item in BoundedAsync.StreamAsync(requests, _ctx.Options.MaxConcurrency,
+        var groups = ReconciliationRequestGroups.Create(requests);
+        await foreach (var item in BoundedAsync.StreamAsync(groups.Representatives, _ctx.Options.MaxConcurrency,
             (request, token) => ReconcileAsync(request, token), cancellationToken).ConfigureAwait(false))
-            yield return (item.Index, item.Result);
+        {
+            foreach (var index in groups.Members[item.Index])
+                yield return (index, item.Result);
+        }
     }
 
     /// <summary>
@@ -330,10 +348,38 @@ public sealed class ReconciliationService
 
     /// <summary>
     /// Suggests Wikidata types/classes matching a text prefix.
+    /// Results are restricted to classes (entities with a P279 "subclass of" statement) so that
+    /// typing "novel" suggests the class rather than individual novels. If none of the matches
+    /// is a class, the plain entity suggestions are returned instead.
     /// </summary>
-    public Task<IReadOnlyList<SuggestResult>> SuggestTypesAsync(
+    public async Task<IReadOnlyList<SuggestResult>> SuggestTypesAsync(
         string prefix, int limit = 7, string? language = null, CancellationToken cancellationToken = default)
-        => SuggestAsync(prefix, limit, language, cancellationToken);
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(prefix);
+
+        var lang = language ?? _ctx.Options.Language;
+        var searchLimit = Math.Clamp(limit * 3, limit, 50);
+        var searchResults = await _ctx.SearchClient.SuggestAsync(prefix, lang, searchLimit, cancellationToken)
+            .ConfigureAwait(false);
+        if (searchResults.Count == 0)
+            return [];
+
+        var claims = await _ctx.EntityFetcher.FetchClaimsOnlyAsync(
+            searchResults.Select(r => r.Id).ToList(), cancellationToken).ConfigureAwait(false);
+
+        var classes = searchResults
+            .Where(r => claims.TryGetValue(r.Id, out var entity) &&
+                        entity.Claims?.TryGetValue("P279", out var p279) == true && p279.Count > 0)
+            .ToList();
+        var chosen = classes.Count > 0 ? classes : searchResults;
+
+        return chosen.Take(limit).Select(r => new SuggestResult
+        {
+            Id = r.Id,
+            Name = r.Label ?? r.Id,
+            Description = r.Description
+        }).ToList();
+    }
 
     private static int CompareQids(string a, string b)
     {

@@ -450,6 +450,7 @@ public class BehaviorFeaturesTests
     [Fact]
     public async Task ReconcileAsync_ChainedPropertyPath_ScoresThroughIntermediateEntity()
     {
+        var intermediateRequests = 0;
         var handler = new TestHttpMessageHandler((request, _) =>
         {
             var uri = Uri.UnescapeDataString(request.RequestUri!.ToString());
@@ -476,18 +477,14 @@ public class BehaviorFeaturesTests
                         ("P131", "wikibase-item", TestPayloads.ItemDataValue("Q200"), "normal"))))));
             }
 
+            // Intermediates for every candidate arrive in one batched request.
             if (uri.Contains("action=wbgetentities", StringComparison.OrdinalIgnoreCase) &&
-                uri.Contains("ids=Q100", StringComparison.OrdinalIgnoreCase))
+                uri.Contains("ids=Q100|Q200", StringComparison.OrdinalIgnoreCase))
             {
+                Interlocked.Increment(ref intermediateRequests);
                 return Task.FromResult(TestHttpMessageHandler.Json(EntityResponse(
                     TestPayloads.Entity("Q100", "Region A", claims: TestPayloads.Claims(
-                        ("P17", "wikibase-item", TestPayloads.ItemDataValue("Q30"), "normal"))))));
-            }
-
-            if (uri.Contains("action=wbgetentities", StringComparison.OrdinalIgnoreCase) &&
-                uri.Contains("ids=Q200", StringComparison.OrdinalIgnoreCase))
-            {
-                return Task.FromResult(TestHttpMessageHandler.Json(EntityResponse(
+                        ("P17", "wikibase-item", TestPayloads.ItemDataValue("Q30"), "normal"))),
                     TestPayloads.Entity("Q200", "Region B", claims: TestPayloads.Claims(
                         ("P17", "wikibase-item", TestPayloads.ItemDataValue("Q145"), "normal"))))));
             }
@@ -505,6 +502,7 @@ public class BehaviorFeaturesTests
 
         Assert.Equal("Q2", results[0].Id);
         Assert.Equal(100.0, results[0].Breakdown!.PropertyScores["P131/P17"]);
+        Assert.Equal(1, intermediateRequests);
     }
 
     private static string EntityResponse(params Dictionary<string, object?>[] entities)

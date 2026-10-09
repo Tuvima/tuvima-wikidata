@@ -9,7 +9,53 @@ internal static class ReconciliationRequestReader
 {
     internal sealed record ParsedQueries(bool IsBatch, Dictionary<string, W3cQuery> Queries);
 
-    public static async Task<(ParsedQueries? Payload, IResult? Error)> ReadAsync(
+    internal sealed record ParsedExtend(W3cExtendRequest Request);
+
+    /// <summary>Reads a reconciliation ('query'/'queries') or data-extension ('extend') POST.</summary>
+    public static async Task<(ParsedQueries? Queries, ParsedExtend? Extend, IResult? Error)> ReadPostAsync(
+        HttpRequest request, ReconciliationServiceOptions options, CancellationToken cancellationToken)
+    {
+        var (form, error) = await ReadFormAsync(request, options, cancellationToken);
+        if (error is not null)
+            return (null, null, error);
+
+        if (form!.ContainsKey("extend") && !form.ContainsKey("query") && !form.ContainsKey("queries"))
+        {
+            try
+            {
+                var (extend, extendError) = ParseExtend(form, options);
+                return (null, extend, extendError);
+            }
+            catch (JsonException)
+            {
+                return (null, null, Error(400, "The extend parameter contains malformed JSON or invalid field types."));
+            }
+        }
+
+        try
+        {
+            var (queries, queryError) = ParseQueries(form);
+            if (queryError is not null)
+                return (null, null, queryError);
+            if (queries!.Queries.Count > options.MaxBatchSize)
+                return (null, null, Error(400, "The batch exceeds MaxBatchSize."));
+
+            foreach (var (key, query) in queries.Queries)
+            {
+                if (queries.IsBatch && string.IsNullOrWhiteSpace(key))
+                    return (null, null, Error(400, "Batch keys must not be blank."));
+                var issue = Validate(query, options);
+                if (issue is not null) return (null, null, Error(400, issue));
+            }
+            return (queries, null, null);
+        }
+        catch (JsonException)
+        {
+            return (null, null, Error(400, "The query parameter contains malformed JSON or invalid field types."));
+        }
+    }
+
+    private static async Task<(IFormCollection? Form, IResult? Error)> ReadFormAsync(
         HttpRequest request, ReconciliationServiceOptions options, CancellationToken cancellationToken)
     {
         if (!request.HasFormContentType)
@@ -47,35 +93,7 @@ internal static class ReconciliationRequestReader
 
             if (form.Files.Count > 0)
                 return (null, Error(400, "File uploads are not supported."));
-            var hasBatch = form.TryGetValue("queries", out var batch);
-            var hasSingle = form.TryGetValue("query", out var single);
-            if (hasBatch == hasSingle || (hasBatch ? batch.Count : single.Count) != 1)
-                return (null, Error(400, "Supply exactly one 'query' or 'queries' form value."));
-
-            var json = hasBatch ? batch[0] : single[0];
-            if (string.IsNullOrWhiteSpace(json))
-                return (null, Error(400, "The query parameter must contain a JSON object."));
-
-            var queries = hasBatch
-                ? JsonSerializer.Deserialize(json, W3cJsonContext.Default.DictionaryStringW3cQuery)
-                : new Dictionary<string, W3cQuery> { [""] = JsonSerializer.Deserialize(json, W3cJsonContext.Default.W3cQuery)! };
-            if (queries is null || queries.Count == 0)
-                return (null, Error(400, "At least one query is required."));
-            if (queries.Count > options.MaxBatchSize)
-                return (null, Error(400, "The batch exceeds MaxBatchSize."));
-
-            foreach (var (key, query) in queries)
-            {
-                if (hasBatch && string.IsNullOrWhiteSpace(key))
-                    return (null, Error(400, "Batch keys must not be blank."));
-                var issue = Validate(query, options);
-                if (issue is not null) return (null, Error(400, issue));
-            }
-            return (new(hasBatch, queries), null);
-        }
-        catch (JsonException)
-        {
-            return (null, Error(400, "The query parameter contains malformed JSON or invalid field types."));
+            return (form, null);
         }
         catch (InvalidDataException)
         {
@@ -85,6 +103,45 @@ internal static class ReconciliationRequestReader
         {
             return (null, Error(ex.StatusCode, "The request body is invalid or exceeds the server limit."));
         }
+    }
+
+    private static (ParsedQueries? Payload, IResult? Error) ParseQueries(IFormCollection form)
+    {
+        var hasBatch = form.TryGetValue("queries", out var batch);
+        var hasSingle = form.TryGetValue("query", out var single);
+        if (hasBatch == hasSingle || (hasBatch ? batch.Count : single.Count) != 1)
+            return (null, Error(400, "Supply exactly one 'query' or 'queries' form value."));
+
+        var json = hasBatch ? batch[0] : single[0];
+        if (string.IsNullOrWhiteSpace(json))
+            return (null, Error(400, "The query parameter must contain a JSON object."));
+
+        var queries = hasBatch
+            ? JsonSerializer.Deserialize(json, W3cJsonContext.Default.DictionaryStringW3cQuery)
+            : new Dictionary<string, W3cQuery> { [""] = JsonSerializer.Deserialize(json, W3cJsonContext.Default.W3cQuery)! };
+        if (queries is null || queries.Count == 0)
+            return (null, Error(400, "At least one query is required."));
+        return (new(hasBatch, queries), null);
+    }
+
+    private static (ParsedExtend? Payload, IResult? Error) ParseExtend(IFormCollection form, ReconciliationServiceOptions options)
+    {
+        var values = form["extend"];
+        if (values.Count != 1 || string.IsNullOrWhiteSpace(values[0]))
+            return (null, Error(400, "Supply exactly one 'extend' JSON value."));
+
+        var extend = JsonSerializer.Deserialize(values[0]!, W3cJsonContext.Default.W3cExtendRequest);
+        if (extend?.Ids is not { Count: > 0 } || extend.Properties is not { Count: > 0 })
+            return (null, Error(400, "The extend request needs nonempty 'ids' and 'properties' arrays."));
+        if (extend.Ids.Count > options.MaxBatchSize)
+            return (null, Error(400, "The extend request exceeds MaxBatchSize ids."));
+        if (extend.Properties.Count > options.MaxPropertiesPerQuery)
+            return (null, Error(400, "The extend request exceeds MaxPropertiesPerQuery."));
+        if (extend.Ids.Any(id => !DataExtension.IsEntityId(id, 'Q')))
+            return (null, Error(400, "Each id must be a Wikidata item ID such as Q42."));
+        if (extend.Properties.Any(p => p is null || !DataExtension.IsEntityId(p.Id, 'P')))
+            return (null, Error(400, "Each property must have an 'id' such as P569."));
+        return (new(extend), null);
     }
 
     private static string? Validate(W3cQuery? query, ReconciliationServiceOptions options)

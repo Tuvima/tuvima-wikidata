@@ -15,7 +15,8 @@ public static class ReconciliationEndpoints
 {
     /// <summary>
     /// Maps the W3C Reconciliation Service API endpoints at the specified path prefix.
-    /// Includes reconciliation, suggest (entity/property/type), and preview endpoints.
+    /// Includes reconciliation, data extension (property proposals and values), suggest
+    /// (entity/property/type), and preview endpoints.
     /// </summary>
     /// <param name="endpoints">The endpoint route builder.</param>
     /// <param name="pathPrefix">The URL prefix (e.g., "/api/reconcile"). Default is "/reconcile".</param>
@@ -42,12 +43,17 @@ public static class ReconciliationEndpoints
             return Results.Json(manifest, W3cJsonContext.Default.ServiceManifest);
         });
 
-        // POST — reconciliation queries (with Accept-Language support)
+        // POST — reconciliation queries or data extension (with Accept-Language support)
         endpoints.MapPost(prefix, async (HttpContext ctx, WikidataReconciler reconciler) =>
         {
             var acceptLanguage = GetAcceptLanguage(ctx);
-            var (payload, error) = await ReconciliationRequestReader.ReadAsync(ctx.Request, serviceOptions, ctx.RequestAborted);
+            var (payload, extend, error) = await ReconciliationRequestReader.ReadPostAsync(ctx.Request, serviceOptions, ctx.RequestAborted);
             if (error is not null) return error;
+            if (extend is not null)
+            {
+                var extended = await DataExtension.ExtendAsync(reconciler, extend.Request, acceptLanguage, ctx.RequestAborted);
+                return Results.Json(extended, W3cJsonContext.Default.W3cExtendResponse);
+            }
             var entries = payload!.Queries.ToArray();
             var requests = entries.Select(entry => MapToRequest(entry.Value, acceptLanguage,
                 Math.Min(5, serviceOptions.MaxResultLimit))).ToArray();
@@ -60,6 +66,28 @@ public static class ReconciliationEndpoints
             for (var i = 0; i < entries.Length; i++)
                 results.Add(entries[i].Key, reconciled[i].Select(MapToCandidate).ToList());
             return Results.Json(results, W3cJsonContext.Default.DictionaryStringListW3cCandidate);
+        });
+
+        // ─── Data Extension ───────────────────────────────────────────
+
+        // GET /propose_properties?type=Q5&limit=10
+        endpoints.MapGet($"{prefix}/propose_properties", async (HttpContext ctx, WikidataReconciler reconciler) =>
+        {
+            var type = ctx.Request.Query["type"].FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(type))
+                type = null;
+            else if (!DataExtension.IsEntityId(type, 'Q'))
+                return Results.Problem(statusCode: 400, detail: "The 'type' parameter must be a Wikidata item ID such as Q5.");
+
+            var limitParam = ctx.Request.Query["limit"].FirstOrDefault();
+            var limit = 10;
+            if (!string.IsNullOrWhiteSpace(limitParam) &&
+                (!int.TryParse(limitParam, out limit) || limit <= 0 || limit > serviceOptions.MaxResultLimit))
+                return Results.Problem(statusCode: 400, detail: "The 'limit' parameter must be between 1 and MaxResultLimit.");
+
+            var proposals = await DataExtension.ProposeAsync(
+                reconciler, type?.ToUpperInvariant(), limit, GetAcceptLanguage(ctx), ctx.RequestAborted);
+            return Results.Json(proposals, W3cJsonContext.Default.W3cProposeResponse);
         });
 
         // ─── Suggest Endpoints ────────────────────────────────────────
@@ -205,6 +233,7 @@ public static class ReconciliationEndpoints
 
         return new ServiceManifest
         {
+            Versions = ["0.1", "0.2"],
             Name = options.ServiceName,
             IdentifierSpace = options.IdentifierSpace,
             SchemaSpace = options.SchemaSpace,
@@ -221,6 +250,21 @@ public static class ReconciliationEndpoints
                 Url = baseUrl + "/preview?id={{id}}",
                 Width = 400,
                 Height = 100
+            },
+            Extend = new ExtendService
+            {
+                ProposeProperties = new SuggestService { ServiceUrl = baseUrl, ServicePath = "/propose_properties" },
+                PropertySettings =
+                [
+                    new PropertySetting
+                    {
+                        Name = "limit",
+                        Label = "Limit",
+                        Type = "number",
+                        Default = 0,
+                        HelpText = "Maximum number of values to return per row (0 for no limit)"
+                    }
+                ]
             }
         };
     }
@@ -299,6 +343,9 @@ public static class ReconciliationEndpoints
 
 internal sealed class ServiceManifest
 {
+    [JsonPropertyName("versions")]
+    public List<string> Versions { get; set; } = [];
+
     [JsonPropertyName("name")]
     public string Name { get; set; } = "";
 
@@ -319,6 +366,9 @@ internal sealed class ServiceManifest
 
     [JsonPropertyName("preview")]
     public PreviewService? Preview { get; set; }
+
+    [JsonPropertyName("extend")]
+    public ExtendService? Extend { get; set; }
 }
 
 internal sealed class ServiceView
@@ -444,6 +494,9 @@ internal sealed class W3cSuggestItem
 [JsonSerializable(typeof(W3cSuggestResponse))]
 [JsonSerializable(typeof(Dictionary<string, W3cQuery>))]
 [JsonSerializable(typeof(Dictionary<string, List<W3cCandidate>>))]
+[JsonSerializable(typeof(W3cExtendRequest))]
+[JsonSerializable(typeof(W3cExtendResponse))]
+[JsonSerializable(typeof(W3cProposeResponse))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]

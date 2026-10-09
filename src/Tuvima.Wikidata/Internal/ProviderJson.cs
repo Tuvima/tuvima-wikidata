@@ -71,12 +71,17 @@ internal static class ProviderJson
             codeValue.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(codeValue.GetString()))
             throw new JsonException("Expected a provider error code.");
         var code = codeValue.GetString()!;
+        // wbgetentities names the offending ID; callers use it to retry a batch without that ID.
+        var entityId = error.TryGetProperty("id", out var idValue) && idValue.ValueKind == JsonValueKind.String
+            ? idValue.GetString()
+            : null;
         return code.ToLowerInvariant() switch
         {
             "maxlag" or "ratelimited" => new(code, WikidataFailureKind.RateLimited, true),
             "readonly" or "internal_api_error_dbconnectionerror" or "internal_api_error_dbquerytimeouterror"
                 => new(code, WikidataFailureKind.TransientNetworkFailure, true),
-            "missingtitle" or "nosuchentity" or "no-such-entity" => new(code, WikidataFailureKind.NotFound, false),
+            "missingtitle" or "nosuchentity" or "no-such-entity" or "nosuchsection"
+                => new(code, WikidataFailureKind.NotFound, false, entityId),
             _ => new(code, WikidataFailureKind.ProviderRejected, false)
         };
     }
@@ -97,4 +102,4 @@ internal static class ProviderJson
     }
 }
 
-internal sealed record ProviderError(string Code, WikidataFailureKind Kind, bool Retryable);
+internal sealed record ProviderError(string Code, WikidataFailureKind Kind, bool Retryable, string? EntityId = null);

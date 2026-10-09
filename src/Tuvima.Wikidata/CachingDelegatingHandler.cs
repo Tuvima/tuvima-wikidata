@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json;
 
 namespace Tuvima.Wikidata;
 
@@ -15,7 +16,13 @@ namespace Tuvima.Wikidata;
 /// </para>
 /// Use <see cref="WikidataReconciler.GetRevisionIdsAsync"/> for lightweight staleness checks
 /// to implement cache invalidation.
+/// <para>
+/// Prefer <see cref="WikidataReconcilerOptions.ResponseCache"/>: it caches only validated, cacheable
+/// provider responses and is keyed canonically. This handler sits below the retry pipeline and only
+/// stores successful JSON bodies that are not MediaWiki error envelopes.
+/// </para>
 /// </summary>
+[Obsolete("Use WikidataReconcilerOptions.ResponseCache with an IWikidataResponseCache implementation instead.")]
 public abstract class CachingDelegatingHandler : DelegatingHandler
 {
     /// <summary>
@@ -58,7 +65,10 @@ public abstract class CachingDelegatingHandler : DelegatingHandler
         if (response.IsSuccessStatusCode)
         {
             var content = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            await CacheResponseAsync(uri, content, cancellationToken).ConfigureAwait(false);
+            // MediaWiki reports maxlag and other failures as HTTP 200 error envelopes. Caching one
+            // would replay the failure to every retry, so only cache bodies that look like real data.
+            if (IsCacheableBody(content))
+                await CacheResponseAsync(uri, content, cancellationToken).ConfigureAwait(false);
 
             // Replace the response content since ReadAsStringAsync consumed it
             response.Content = new StringContent(content, System.Text.Encoding.UTF8,
@@ -66,5 +76,21 @@ public abstract class CachingDelegatingHandler : DelegatingHandler
         }
 
         return response;
+    }
+
+    internal static bool IsCacheableBody(string content)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(content);
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+                return root.ValueKind == JsonValueKind.Array;
+            return !root.TryGetProperty("error", out _) && !root.TryGetProperty("errors", out _);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 }

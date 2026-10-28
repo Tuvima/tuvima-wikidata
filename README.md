@@ -40,14 +40,19 @@ This is the first .NET Wikidata reconciliation library, filling a gap in the eco
 | [`Tuvima.Wikidata`](https://www.nuget.org/packages/Tuvima.Wikidata) | Core library — reconciliation, entity data, Wikipedia content, graph traversal |
 | [`Tuvima.Wikidata.AspNetCore`](https://www.nuget.org/packages/Tuvima.Wikidata.AspNetCore) | ASP.NET Core middleware for hosting a W3C Reconciliation Service API |
 
-Current release: `3.10.0`
+Current release: `3.10.1`
 
 Current offline validation: 271 passing tests on each of .NET 8 and .NET 10 (542 executions). Live integration tests run separately against Wikimedia services.
+
+## Documentation
+
+Guides, reference, migration guides and the changelog live at **[docs.tuvima.com/libraries/wikidata](https://docs.tuvima.com/libraries/wikidata/)**.
 
 ## Version Details
 
 | Version | Type | Notes |
 |---|---|---|
+| `3.10.1` | Patch | Documentation moved to [docs.tuvima.com](https://docs.tuvima.com/libraries/wikidata/); README and package links point there. No code changes. |
 | `3.10.0` | Minor | Name-valued item constraints, batched chained-path lookups, OpenRefine data extension, class-only type suggest, DI options overloads, OpenTelemetry tracing/metrics, XML docs and symbols in packages. |
 | `3.9.1` | Patch | Extracts bridge scoring, canonical rollups, and relationships into focused internals; adds offline comparison benchmarks. |
 | `3.9.0` | Minor | Validated ASP.NET requests, configurable request limits, and explicit .NET 8/.NET 10 test coverage. |
@@ -109,32 +114,32 @@ var crossMedia = graph.FindCrossMediaEntities(minWorks: 2);
 ### Reconciliation
 Match text to Wikidata entities with dual-search, fuzzy matching, type filtering, property constraints, and confidence scoring.
 
-[Reconciliation guide](docs/reconciliation.md) — type filtering, property constraints, batch processing, streaming, scoring breakdown
+[Reconciliation guide](https://docs.tuvima.com/libraries/wikidata/reconciliation/) — type filtering, property constraints, batch processing, streaming, scoring breakdown
 
 ### Entity Data & Wikipedia Content
 Fetch structured entity data, Wikipedia summaries and sections, images, revision history, editions, and child entities.
 
-[Entity data guide](docs/entity-data.md) — entity fetching, Wikipedia content, staleness detection, edition discovery, child entities
+[Entity data guide](https://docs.tuvima.com/libraries/wikidata/entity-data/) — entity fetching, Wikipedia content, staleness detection, edition discovery, child entities
 
 ### Series Manifests
 Build ordered literary/media series manifests from Wikidata series and franchise entities using P179, P361, P8345, P527, P1545, P155, P156, and P577.
 
-[Series manifest guide](docs/series-manifest.md) â€” manifest retrieval, ordering confidence, provenance, warnings, and The Expanse example
+[Series manifest guide](https://docs.tuvima.com/libraries/wikidata/series-manifest/) — manifest retrieval, ordering confidence, provenance, warnings, and The Expanse example
 
 ### Graph Traversal
 Lightweight in-memory entity graph for pathfinding, family trees, cross-media detection, and subgraph extraction. Pure C# with adjacency lists — no RDF or SPARQL dependencies.
 
-[Graph module guide](docs/graph.md) — building graphs, pathfinding, family trees, cross-media entities, subgraphs
+[Graph module guide](https://docs.tuvima.com/libraries/wikidata/graph/) — building graphs, pathfinding, family trees, cross-media entities, subgraphs
 
 ### ASP.NET Core Integration
 Host a W3C Reconciliation Service API compatible with OpenRefine and Google Sheets.
 
-[ASP.NET Core guide](docs/aspnetcore.md) — DI registration, endpoint mapping, service manifest
+[ASP.NET Core guide](https://docs.tuvima.com/libraries/wikidata/aspnetcore/) — DI registration, endpoint mapping, service manifest
 
 ### Configuration
 Tune scoring, language, type hierarchy, provider-safe host limits, response caching, diagnostics, and HTTP behavior.
 
-[Configuration guide](docs/configuration.md) — all options, caching, custom HttpClient, custom Wikibase instances
+[Configuration guide](https://docs.tuvima.com/libraries/wikidata/configuration/) — all options, caching, custom HttpClient, custom Wikibase instances
 
 ## Architecture
 
@@ -142,7 +147,7 @@ Tune scoring, language, type hierarchy, provider-safe host limits, response cach
 
 The reconciliation pipeline has four stages: dual search, entity fetching, weighted scoring, and type filtering.
 
-[Architecture overview](docs/architecture.md) — pipeline stages, internal components, design decisions
+[Architecture overview](https://docs.tuvima.com/libraries/wikidata/architecture/) — pipeline stages, internal components, design decisions
 
 ## What's New in v3.10.0
 
@@ -163,7 +168,7 @@ The reconciliation pipeline has four stages: dual search, entity fetching, weigh
 
 - Bridge resolution delegates scoring, canonical-work selection, and relationship extraction to focused internal components. Public APIs and selection rules are unchanged.
 - Seven additional contract tests cover rollup targets, edition selection, ranking ties, ambiguity warnings, and relationship provenance.
-- An offline benchmark harness measures reconciliation, batches, bridge resolution, and graph workloads, and compares representative bridge results and public API signatures. See [performance measurements](docs/performance.md).
+- An offline benchmark harness measures reconciliation, batches, bridge resolution, and graph workloads, and compares representative bridge results and public API signatures. See [performance measurements](https://docs.tuvima.com/libraries/wikidata/performance/).
 
 ## What's New in v3.9.0
 
@@ -172,7 +177,7 @@ The reconciliation pipeline has four stages: dual search, entity fetching, weigh
 - Valid endpoint batches use bounded reconciliation and preserve correlation keys. Request cancellation reaches provider work.
 - Offline tests, including 36 endpoint cases, now run on both .NET 8 and .NET 10 in CI. Live tests run once in a separate nonblocking job.
 
-See the [ASP.NET Core guide](docs/aspnetcore.md) for defaults and request examples. Existing clients exceeding the new limits can raise them explicitly.
+See the [ASP.NET Core guide](https://docs.tuvima.com/libraries/wikidata/aspnetcore/) for defaults and request examples. Existing clients exceeding the new limits can raise them explicitly.
 
 ## What's New in v3.8.0
 
@@ -180,7 +185,7 @@ See the [ASP.NET Core guide](docs/aspnetcore.md) for defaults and request exampl
 - Host requests are spaced after a concurrency slot becomes available, so queued work cannot burst through previously reserved start times.
 - Batches and variable-size fan-out use bounded execution windows controlled by `MaxConcurrency`. Ordered results and indexed streaming results are preserved; early stream disposal cancels pending work.
 
-See [configuration](docs/configuration.md) for capacity limits, batch cancellation, and request pacing.
+See [configuration](https://docs.tuvima.com/libraries/wikidata/configuration/) for capacity limits, batch cancellation, and request pacing.
 
 ## What's New in v3.7.0
 
@@ -189,7 +194,7 @@ See [configuration](docs/configuration.md) for capacity limits, batch cancellati
 - Callers sharing a request can cancel independently, and timeouts cover response-body reads.
 - Subclass matching is independent of lookup order and respects each request's depth override, including zero.
 
-See [configuration](docs/configuration.md) for timeout, cancellation, retry, and cache behavior.
+See [configuration](https://docs.tuvima.com/libraries/wikidata/configuration/) for timeout, cancellation, retry, and cache behavior.
 
 ## What's New in v3.6.0
 
@@ -418,7 +423,7 @@ var seasons = await reconciler.Children.GetChildEntitiesAsync(new ChildEntityReq
 });
 ```
 
-**Breaking changes** — see [`docs/migrating-to-v2.md`](docs/migrating-to-v2.md) for full migration steps:
+**Breaking changes** — see [`migrating-to-v2`](https://docs.tuvima.com/libraries/wikidata/migrating-to-v2/) for full migration steps:
 
 - `ReconciliationRequest.Type` (singular) removed — use `Types = ["Q5"]`
 - `PropertyConstraint.Value` (singular) removed — use `new PropertyConstraint("P569", "1952-03-11")` or `Values = [...]`
@@ -431,7 +436,7 @@ var seasons = await reconciler.Children.GetChildEntitiesAsync(new ChildEntityReq
 - v2.1.0 — `Persons.SearchAsync` (role-aware person search, musical group handling, year/companion hints)
 - v2.2.0 — `Stage2.ResolveBatchAsync` (unified bridge/music/text resolver with discriminated request types and edition pivoting)
 
-See the [changelog](docs/changelog.md) for the full version history.
+See the [changelog](https://docs.tuvima.com/libraries/wikidata/changelog/) for the full version history.
 
 ## Acknowledgements
 

@@ -193,15 +193,7 @@ tests/
     ├── TestHttpMessageHandler.cs            # Test HTTP shim for deterministic service tests
     └── TestPayloads.cs                      # Shared JSON payload builders for service tests
 docs/
-├── reconciliation.md                        # Reconciliation usage guide
-├── entity-data.md                           # Entity data & Wikipedia content guide
-├── series-manifest.md                       # Series manifest retrieval guide
-├── graph.md                                 # Graph module guide
-├── aspnetcore.md                            # ASP.NET Core integration guide
-├── configuration.md                         # Configuration options guide
-├── architecture.md                          # Architecture overview
-├── migrating-to-v2.md                       # v1 → v2.0.0 migration guide
-└── changelog.md                             # Version history
+└── phase4-benchmarks.json                   # Benchmark baseline data (the guides live at docs.tuvima.com)
 ```
 
 ## Public API Reference
@@ -457,7 +449,7 @@ Offline validation: 271 passing tests per target (.NET 8 and .NET 10), 542 execu
 - `Internal/BridgeCanonicalRollup.cs` owns P629/P747 work/edition selection and evidence paths. `Internal/BridgeRelationshipExtractor.cs` owns related-QID discovery, series classification, and relationship-edge extraction. Both operate on fetched entity data.
 - `Internal/BridgeEntityFacts.cs` contains shared claim readers/property sets; `Internal/BridgeDiagnosticsBuilder.cs` accumulates request diagnostics across phases.
 - `tests/Tuvima.Wikidata.Tests/BridgeContractTests.cs` adds seven public behavior checks, verified before and after extraction.
-- `benchmarks/Tuvima.Wikidata.Benchmarks/` is a standalone non-packable net8.0/net10.0 console project, outside the solution and CI test gates. It uses local provider fixtures, measures timing/allocations, and emits representative result/public API fingerprints. Commands and baseline evidence are in `docs/performance.md`; benchmark output defaults to stdout or an explicitly supplied file.
+- `benchmarks/Tuvima.Wikidata.Benchmarks/` is a standalone non-packable net8.0/net10.0 console project, outside the solution and CI test gates. It uses local provider fixtures, measures timing/allocations, and emits representative result/public API fingerprints. Commands and baseline evidence are in the performance page at https://docs.tuvima.com/libraries/wikidata/performance/ (baseline data: `docs/phase4-benchmarks.json`); benchmark output defaults to stdout or an explicitly supplied file.
 
 ## Phase 5 Matching, OpenRefine, and Packaging (v3.10.0)
 
@@ -480,7 +472,7 @@ GitHub Actions workflow (`.github/workflows/ci.yml`):
 
 ## Mandatory Rules
 
-1. **Documentation on every feature change.** Every new public method, property, option, or behavior change MUST be reflected in BOTH `AGENTS.md` / `CLAUDE.md` (kept identical apart from the title; architecture, API reference, project structure) AND `README.md` / relevant `docs/` files. Never ship a feature without updating docs.
+1. **Documentation on every feature change.** Every new public method, property, option, or behavior change MUST be reflected in BOTH `AGENTS.md` / `CLAUDE.md` (kept identical apart from the title; architecture, API reference, project structure) AND `README.md` AND the matching pages in the `tuvima-docs` repository (`content/libraries/wikidata/`, published at https://docs.tuvima.com/libraries/wikidata/). Public guides, reference, migration guides and the changelog no longer live in this repository. Never ship a feature without updating docs.
 
 2. **Version bump on every feature change.** Any commit that adds, removes, or changes public API surface MUST increment the package version in BOTH `.csproj` files (`Tuvima.Wikidata` and `Tuvima.Wikidata.AspNetCore`). Use semantic versioning:
    - **Patch** (x.y.**Z**) — bug fixes, internal refactors, doc-only changes

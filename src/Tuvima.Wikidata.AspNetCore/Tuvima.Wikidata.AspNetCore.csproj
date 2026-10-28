@@ -8,12 +8,12 @@
 
     <!-- NuGet package metadata -->
     <PackageId>Tuvima.Wikidata.AspNetCore</PackageId>
-    <Version>3.10.0</Version>
+    <Version>3.10.1</Version>
     <Authors>Tuvima</Authors>
     <Description>ASP.NET Core middleware for hosting a W3C Reconciliation Service API backed by Wikidata. Exposes the Tuvima.Wikidata library as an OpenRefine-compatible HTTP endpoint.</Description>
     <PackageTags>wikidata;reconciliation;openrefine;w3c;aspnetcore;middleware</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageProjectUrl>https://github.com/Tuvima/wikidata</PackageProjectUrl>
+    <PackageProjectUrl>https://docs.tuvima.com/libraries/wikidata/</PackageProjectUrl>
     <RepositoryUrl>https://github.com/Tuvima/wikidata</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageReadmeFile>README.md</PackageReadmeFile>

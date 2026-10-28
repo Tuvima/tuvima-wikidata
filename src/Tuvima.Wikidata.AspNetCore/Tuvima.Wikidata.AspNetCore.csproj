@@ -28,7 +28,7 @@
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
     <!-- Fail pack on accidental breaking changes against the last published version. -->
     <EnablePackageValidation>true</EnablePackageValidation>
-    <PackageValidationBaselineVersion>3.9.1</PackageValidationBaselineVersion>
+    <PackageValidationBaselineVersion>3.10.1</PackageValidationBaselineVersion>
     <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
   </PropertyGroup>
 

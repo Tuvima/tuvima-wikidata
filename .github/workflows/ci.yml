@@ -83,6 +83,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: pack
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Trusted Publishing: the job asks GitHub for a short-lived identity token and NuGet swaps it for a one-hour key,
+    # so no long-lived API key is stored in this repository (NuGet limits stored keys to 30 days).
+    permissions:
+      id-token: write
+      contents: read
 
     steps:
       # Publish the exact packages produced (and validated) by the pack job.
@@ -97,5 +102,11 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - name: Sign in to NuGet (Trusted Publishing)
+        id: nuget-login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
       - name: Publish to NuGet
-        run: dotnet nuget push ./artifacts/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+        run: dotnet nuget push ./artifacts/*.nupkg --api-key ${{ steps.nuget-login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate

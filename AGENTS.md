@@ -469,7 +469,7 @@ GitHub Actions workflow (`.github/workflows/ci.yml`):
 - Explicit test-target matrix: net8.0 and net10.0; offline core/endpoint tests gate every push/PR, with build warnings treated as errors and per-target TRX artifacts
 - Integration tests run once on .NET 10 in a separate `continue-on-error` job (depend on Wikidata availability)
 - NuGet pack (`.nupkg` + `.snupkg`, package validation against `PackageValidationBaselineVersion`) as build artifact
-- Auto-publish the packed artifact to NuGet on every push to main (requires `NUGET_API_KEY` secret)
+- Auto-publish the packed artifact to NuGet on every push to main using NuGet Trusted Publishing (OIDC login via `NuGet/login`, needs the `NUGET_USER` secret and a trusted-publishing policy on nuget.org; no stored API key)
 
 ## Mandatory Rules
 

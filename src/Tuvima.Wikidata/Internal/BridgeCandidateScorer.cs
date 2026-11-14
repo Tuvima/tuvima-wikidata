@@ -8,7 +8,7 @@ internal class BridgeCandidateScorer
     private static readonly IReadOnlyDictionary<BridgeMediaKind, IReadOnlyList<string>> MediaTypeHints =
         new Dictionary<BridgeMediaKind, IReadOnlyList<string>>
         {
-            [BridgeMediaKind.Book] = ["Q571", "Q7725634", "Q47461344", "Q3331189"],
+            [BridgeMediaKind.Book] = ["Q571", "Q7725634", "Q47461344", "Q3331189", "Q8261", "Q149537", "Q49084"],
             [BridgeMediaKind.Audiobook] = ["Q742421", "Q3331189", "Q571"],
             [BridgeMediaKind.ComicSeries] = ["Q14406742", "Q3297186", "Q21198342", "Q838795", "Q1004"],
             [BridgeMediaKind.ComicIssue] = ["Q1114461", "Q14406742", "Q3297186", "Q21198342", "Q838795", "Q1004"],

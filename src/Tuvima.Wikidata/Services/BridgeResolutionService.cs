@@ -462,6 +462,19 @@ public sealed class BridgeResolutionService
             : await FetchLabelsAsync(qids, language, cancellationToken).ConfigureAwait(false);
     }
 
+    private static List<PropertyConstraint> BuildTextFallbackConstraints(BridgeResolutionRequest request)
+    {
+        var constraints = new List<PropertyConstraint>();
+        if (request.MediaKind is not (BridgeMediaKind.Book or BridgeMediaKind.Audiobook))
+            return constraints;
+
+        if (!string.IsNullOrWhiteSpace(request.Creator))
+            constraints.Add(new PropertyConstraint("P50", [request.Creator.Trim()]));
+        if (!string.IsNullOrWhiteSpace(request.SeriesTitle))
+            constraints.Add(new PropertyConstraint("P179", [request.SeriesTitle.Trim()]));
+        return constraints;
+    }
+
     private async Task<IReadOnlyList<BridgeCandidate>> ResolveByTextFallbackAsync(
         BridgeResolutionRequest request,
         BridgeDiagnosticsBuilder diagnostics,
@@ -475,12 +488,18 @@ public sealed class BridgeResolutionService
 
         try
         {
+            // A short, common title ("Drive") matches many items with the same label, and the search order between equals is only the
+            // item number, so the creator and series the caller knows are sent as scoring constraints: the right item then ranks first
+            // and a wider window is read so it is not cut off. Subclasses of the media types count (a novella is a written work).
+            var constraints = BuildTextFallbackConstraints(request);
             var matches = await _reconcile.ReconcileAsync(new ReconciliationRequest
             {
                 Query = request.Title,
                 Types = types.Count > 0 ? types : null,
+                TypeHierarchyDepth = types.Count > 0 ? 2 : null,
+                Properties = constraints.Count > 0 ? constraints : null,
                 Language = language,
-                Limit = 5
+                Limit = constraints.Count > 0 ? 15 : 5
             }, cancellationToken).ConfigureAwait(false);
 
             var qids = matches.Select(m => m.Id).Distinct(StringComparer.OrdinalIgnoreCase).ToList();

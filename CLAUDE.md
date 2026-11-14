@@ -390,7 +390,7 @@ dotnet test
 dotnet pack --configuration Release
 ```
 
-Offline validation: 271 passing tests per target (.NET 8 and .NET 10), 542 executions. Live integration tests run separately against Wikimedia services.
+Offline validation: 272 passing tests per target (.NET 8 and .NET 10), 544 executions. Live integration tests run separately against Wikimedia services.
 
 ## Key Design Decisions
 
@@ -462,6 +462,7 @@ Offline validation: 271 passing tests per target (.NET 8 and .NET 10), 542 execu
 - Default User-Agent carries the real package version; unused `ReconcilerContext.ConcurrencyLimiter` removed.
 - `wbgetentities` fails a whole request with `no-such-entity` when any ID does not exist. `WikidataEntityFetcher` drops the ID named in the error and refetches the rest, so nonexistent QIDs are simply absent (Labels return null). `nosuchsection` maps to `NotFound`, so `GetWikipediaSectionContentAsync` returns null for an invalid section.
 - Packages ship XML docs (CS1591 suppressed for undocumented DTO members), `.snupkg` symbols, SourceLink metadata, and package validation against the 3.9.1 baseline. CI publishes the exact packed artifact.
+- Bridge text fallback (v3.10.2): `Book`/`Audiobook` requests send `Creator` (P50) and `SeriesTitle` (P179) to the reconciler as scoring constraints, read up to 15 results (5 without a hint) and walk P279 two levels for the type filter, so a very common title such as "Drive" ranks the item with the matching author first instead of by item number. `Book` type hints also list novel (Q8261), novella (Q149537) and short story (Q49084).
 
 ## CI/CD
 

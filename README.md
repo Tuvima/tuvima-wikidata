@@ -40,9 +40,9 @@ This is the first .NET Wikidata reconciliation library, filling a gap in the eco
 | [`Tuvima.Wikidata`](https://www.nuget.org/packages/Tuvima.Wikidata) | Core library — reconciliation, entity data, Wikipedia content, graph traversal |
 | [`Tuvima.Wikidata.AspNetCore`](https://www.nuget.org/packages/Tuvima.Wikidata.AspNetCore) | ASP.NET Core middleware for hosting a W3C Reconciliation Service API |
 
-Current release: `3.10.1`
+Current release: `3.10.2`
 
-Current offline validation: 271 passing tests on each of .NET 8 and .NET 10 (542 executions). Live integration tests run separately against Wikimedia services.
+Current offline validation: 272 passing tests on each of .NET 8 and .NET 10 (544 executions). Live integration tests run separately against Wikimedia services.
 
 ## Documentation
 
@@ -52,6 +52,7 @@ Guides, reference, migration guides and the changelog live at **[docs.tuvima.com
 
 | Version | Type | Notes |
 |---|---|---|
+| `3.10.2` | Patch | Bridge text fallback ranks common titles by the creator and series the caller supplies, reads a wider window, and counts novellas, short stories and novels as books. No public API changes. |
 | `3.10.1` | Patch | Documentation moved to [docs.tuvima.com](https://docs.tuvima.com/libraries/wikidata/); README and package links point there. No code changes. |
 | `3.10.0` | Minor | Name-valued item constraints, batched chained-path lookups, OpenRefine data extension, class-only type suggest, DI options overloads, OpenTelemetry tracing/metrics, XML docs and symbols in packages. |
 | `3.9.1` | Patch | Extracts bridge scoring, canonical rollups, and relationships into focused internals; adds offline comparison benchmarks. |

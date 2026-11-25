@@ -353,7 +353,9 @@ public class ReconciliationEndpointTests
             builder.WebHost.UseTestServer();
             builder.Services.AddSingleton(_ => new WikidataReconciler(providerClient, new()
             {
-                WikidataRateLimit = ProviderRateLimitOptions.Unthrottled
+                WikidataRateLimit = ProviderRateLimitOptions.Unthrottled,
+                // The fixtures answer each request by its exact id list, so callers must not be combined.
+                EntityBatchWindow = TimeSpan.Zero
             }));
             var app = builder.Build();
             try

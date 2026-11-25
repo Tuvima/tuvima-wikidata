@@ -106,20 +106,224 @@ internal sealed class WikidataEntityFetcher
                 toFetch.Add(id);
         }
 
-        for (var i = 0; i < toFetch.Count; i += batchSize)
+        if (toFetch.Count == 0)
         {
-            var batch = toFetch.Skip(i).Take(batchSize).ToList();
-            _diagnostics.RecordBatch("wbgetentities", batch.Count);
-            var batchResult = await FetchBatchAsync(batch, language, props, cancellationToken).ConfigureAwait(false);
+            return result;
+        }
 
-            foreach (var kvp in batchResult)
+        if (_options.EntityBatchWindow <= TimeSpan.Zero)
+        {
+            for (var i = 0; i < toFetch.Count; i += batchSize)
             {
-                result[kvp.Key] = kvp.Value;
-                _memory.Remember(kvp.Key, language, props, kvp.Value);
+                var batch = toFetch.Skip(i).Take(batchSize).ToList();
+                _diagnostics.RecordBatch("wbgetentities", batch.Count);
+                var batchResult = await FetchBatchAsync(batch, language, props, cancellationToken).ConfigureAwait(false);
+
+                foreach (var kvp in batchResult)
+                {
+                    result[kvp.Key] = kvp.Value;
+                    _memory.Remember(kvp.Key, language, props, kvp.Value);
+                }
             }
+
+            return result;
+        }
+
+        // Callers that run at the same time and want the same kind of data share requests: what they ask for is collected for a
+        // short moment and fetched together, up to 50 entities per request. Wikidata is limited by requests per second, not by
+        // size, so many small requests cost far more than a few full ones.
+        var combined = await FetchCombinedAsync(toFetch, language, props, batchSize, cancellationToken).ConfigureAwait(false);
+        foreach (var (id, entity) in combined)
+        {
+            result[id] = entity;
+            _memory.Remember(id, language, props, entity);
         }
 
         return result;
+    }
+
+    private sealed class WantedEntity
+    {
+        public readonly TaskCompletionSource<WikidataEntity?> Source =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>How many callers still want this entity.</summary>
+        public int Interest;
+
+        public SharedRequest? Request;
+    }
+
+    private sealed class SharedRequest
+    {
+        public readonly CancellationTokenSource Cancel = new();
+
+        /// <summary>How many of its entities still have a caller waiting; the request is cancelled when none do.</summary>
+        public int Live;
+    }
+
+    private sealed class EntityWindow
+    {
+        public readonly object Gate = new();
+        public readonly Dictionary<string, WantedEntity> Pending = new(StringComparer.OrdinalIgnoreCase);
+        public bool FlushScheduled;
+    }
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<(string Language, string Props), EntityWindow> _windows = new();
+
+    private async Task<Dictionary<string, WikidataEntity>> FetchCombinedAsync(
+        List<string> ids, string? language, string props, int batchSize, CancellationToken cancellationToken)
+    {
+        var window = _windows.GetOrAdd((language ?? "*", props), static _ => new EntityWindow());
+        var waits = new List<(string Id, WantedEntity Wanted)>(ids.Count);
+        List<List<KeyValuePair<string, WantedEntity>>> full;
+        var scheduleFlush = false;
+
+        lock (window.Gate)
+        {
+            foreach (var id in ids)
+            {
+                if (!window.Pending.TryGetValue(id, out var wanted))
+                {
+                    wanted = new WantedEntity();
+                    window.Pending[id] = wanted;
+                }
+
+                wanted.Interest++;
+                waits.Add((id, wanted));
+            }
+
+            full = TakeBatches(window, batchSize, onlyFull: true);
+            if (window.Pending.Count > 0 && !window.FlushScheduled)
+            {
+                window.FlushScheduled = true;
+                scheduleFlush = true;
+            }
+        }
+
+        foreach (var batch in full)
+        {
+            _ = RunSharedRequestAsync(batch, language, props);
+        }
+
+        if (scheduleFlush)
+        {
+            _ = FlushAfterWindowAsync(window, language, props, batchSize);
+        }
+
+        try
+        {
+            var found = await Task.WhenAll(waits.Select(wait => wait.Wanted.Source.Task))
+                .WaitAsync(cancellationToken).ConfigureAwait(false);
+
+            var result = new Dictionary<string, WikidataEntity>(StringComparer.OrdinalIgnoreCase);
+            for (var index = 0; index < waits.Count; index++)
+            {
+                if (found[index] is { } entity)
+                {
+                    result[waits[index].Id] = entity;
+                }
+            }
+
+            return result;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // This caller stops waiting, so it withdraws its interest; a request nobody waits for any more is cancelled.
+            foreach (var (id, wanted) in waits)
+            {
+                Withdraw(window, id, wanted);
+            }
+
+            throw;
+        }
+    }
+
+    private static void Withdraw(EntityWindow window, string id, WantedEntity wanted)
+    {
+        lock (window.Gate)
+        {
+            if (--wanted.Interest > 0)
+            {
+                return;
+            }
+
+            if (wanted.Request is null)
+            {
+                // Not sent yet: nobody wants it, so it is not asked for.
+                if (window.Pending.TryGetValue(id, out var pending) && ReferenceEquals(pending, wanted))
+                {
+                    window.Pending.Remove(id);
+                }
+
+                wanted.Source.TrySetCanceled();
+                return;
+            }
+
+            if (--wanted.Request.Live == 0)
+            {
+                wanted.Request.Cancel.Cancel();
+            }
+        }
+    }
+
+    /// <summary>Takes pending entities out of the window as requests of up to <paramref name="batchSize"/> (call with the gate held).</summary>
+    private static List<List<KeyValuePair<string, WantedEntity>>> TakeBatches(EntityWindow window, int batchSize, bool onlyFull)
+    {
+        var batches = new List<List<KeyValuePair<string, WantedEntity>>>();
+        while (window.Pending.Count >= (onlyFull ? batchSize : 1))
+        {
+            var batch = window.Pending.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase).Take(batchSize).ToList();
+            var request = new SharedRequest { Live = batch.Count };
+            foreach (var pair in batch)
+            {
+                window.Pending.Remove(pair.Key);
+                pair.Value.Request = request;
+            }
+
+            batches.Add(batch);
+        }
+
+        return batches;
+    }
+
+    private async Task FlushAfterWindowAsync(EntityWindow window, string? language, string props, int batchSize)
+    {
+        await Task.Delay(_options.EntityBatchWindow).ConfigureAwait(false);
+
+        List<List<KeyValuePair<string, WantedEntity>>> batches;
+        lock (window.Gate)
+        {
+            window.FlushScheduled = false;
+            batches = TakeBatches(window, batchSize, onlyFull: false);
+        }
+
+        foreach (var batch in batches)
+        {
+            _ = RunSharedRequestAsync(batch, language, props);
+        }
+    }
+
+    private async Task RunSharedRequestAsync(List<KeyValuePair<string, WantedEntity>> batch, string? language, string props)
+    {
+        var request = batch[0].Value.Request!;
+        try
+        {
+            _diagnostics.RecordBatch("wbgetentities", batch.Count);
+            var fetched = await FetchBatchAsync(batch.Select(pair => pair.Key).ToList(), language, props, request.Cancel.Token)
+                .ConfigureAwait(false);
+            var byId = new Dictionary<string, WikidataEntity>(fetched, StringComparer.OrdinalIgnoreCase);
+            foreach (var (id, wanted) in batch)
+            {
+                wanted.Source.TrySetResult(byId.GetValueOrDefault(id));
+            }
+        }
+        catch (Exception ex)
+        {
+            foreach (var (_, wanted) in batch)
+            {
+                wanted.Source.TrySetException(ex);
+            }
+        }
     }
 
     private async Task<Dictionary<string, WikidataEntity>> FetchBatchAsync(

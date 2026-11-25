@@ -40,7 +40,7 @@ This is the first .NET Wikidata reconciliation library, filling a gap in the eco
 | [`Tuvima.Wikidata`](https://www.nuget.org/packages/Tuvima.Wikidata) | Core library — reconciliation, entity data, Wikipedia content, graph traversal |
 | [`Tuvima.Wikidata.AspNetCore`](https://www.nuget.org/packages/Tuvima.Wikidata.AspNetCore) | ASP.NET Core middleware for hosting a W3C Reconciliation Service API |
 
-Current release: `3.10.2`
+Current release: `3.10.3`
 
 Current offline validation: 272 passing tests on each of .NET 8 and .NET 10 (544 executions). Live integration tests run separately against Wikimedia services.
 
@@ -52,6 +52,7 @@ Guides, reference, migration guides and the changelog live at **[docs.tuvima.com
 
 | Version | Type | Notes |
 |---|---|---|
+| `3.10.3` | Patch | The response cache now also keeps name searches, full-text searches (including type and external-ID searches) and Wikipedia table-of-contents answers, so the same person or title searched for on many items costs one request, and an entity already fetched is not fetched again when asked for with the same or fewer properties. No public API changes. |
 | `3.10.2` | Patch | Bridge text fallback ranks common titles by the creator and series the caller supplies, reads a wider window, and counts novellas, short stories and novels as books. No public API changes. |
 | `3.10.1` | Patch | Documentation moved to [docs.tuvima.com](https://docs.tuvima.com/libraries/wikidata/); README and package links point there. No code changes. |
 | `3.10.0` | Minor | Name-valued item constraints, batched chained-path lookups, OpenRefine data extension, class-only type suggest, DI options overloads, OpenTelemetry tracing/metrics, XML docs and symbols in packages. |
@@ -264,7 +265,7 @@ Provider-safety release for high-volume ingestion.
 - **One shared Wikimedia HTTP pipeline.** Wikidata, Wikipedia, and Commons-capable calls flow through the same internal sender for per-host throttling, retries, `Retry-After`, request logging, response-cache hooks, and diagnostics.
 - **Safe defaults for Wikidata.** `www.wikidata.org` defaults to one in-flight request and low request pacing. Wikipedia and Commons have separate host limiters, and each public API on a `WikidataReconciler` shares the same limiter instances.
 - **In-flight request coalescing.** Identical cacheable requests share one network call while the first one is still running, reducing repeated QID/property/summary bursts during ingestion.
-- **Built-in response cache abstraction.** `IWikidataResponseCache` and the default `InMemoryWikidataResponseCache` cache successful entity, label/description, sitelink, Wikipedia summary, and Commons-capable responses. Consumers can plug in a durable provider cache later.
+- **Built-in response cache abstraction.** `IWikidataResponseCache` and the default `InMemoryWikidataResponseCache` cache successful entity, search (name and full-text), label/description, sitelink, Wikipedia summary and table-of-contents, and Commons-capable responses. Consumers can plug in a durable provider cache later.
 - **Batched Wikipedia summaries.** Summary lookups now use batched MediaWiki API calls and preserve QID-to-summary mapping instead of issuing one REST request per article.
 - **Typed provider failures and telemetry.** Exhausted retries throw `WikidataProviderException` with `WikidataFailureKind`, while `reconciler.Diagnostics.GetSnapshot()` reports request counts, cache hits/misses, throttling waits, 429s, retries, batch sizes, average latency, and typed data failures such as missing sitelinks.
 

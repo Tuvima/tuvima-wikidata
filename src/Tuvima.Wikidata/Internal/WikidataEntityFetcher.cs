@@ -13,6 +13,7 @@ internal sealed class WikidataEntityFetcher
     private readonly ResilientHttpClient _httpClient;
     private readonly WikidataReconcilerOptions _options;
     private readonly WikidataDiagnostics _diagnostics;
+    private readonly EntityMemory _memory;
 
     public WikidataEntityFetcher(
         ResilientHttpClient httpClient,
@@ -22,6 +23,7 @@ internal sealed class WikidataEntityFetcher
         _httpClient = httpClient;
         _options = options;
         _diagnostics = diagnostics;
+        _memory = new EntityMemory(options.EnableResponseCaching ? options.ResponseCacheTtl : TimeSpan.Zero);
     }
 
     /// <summary>
@@ -94,14 +96,27 @@ internal sealed class WikidataEntityFetcher
             1,
             ProviderMaxIdsPerRequest);
 
-        for (var i = 0; i < distinctIds.Count; i += batchSize)
+        // Entities already fetched in this process, with the same or a smaller set of properties, are not asked for again.
+        var toFetch = new List<string>(distinctIds.Count);
+        foreach (var id in distinctIds)
         {
-            var batch = distinctIds.Skip(i).Take(batchSize).ToList();
+            if (_memory.TryGet(id, language, props) is { } held)
+                result[id] = held;
+            else
+                toFetch.Add(id);
+        }
+
+        for (var i = 0; i < toFetch.Count; i += batchSize)
+        {
+            var batch = toFetch.Skip(i).Take(batchSize).ToList();
             _diagnostics.RecordBatch("wbgetentities", batch.Count);
             var batchResult = await FetchBatchAsync(batch, language, props, cancellationToken).ConfigureAwait(false);
 
             foreach (var kvp in batchResult)
+            {
                 result[kvp.Key] = kvp.Value;
+                _memory.Remember(kvp.Key, language, props, kvp.Value);
+            }
         }
 
         return result;

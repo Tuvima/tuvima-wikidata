@@ -45,8 +45,16 @@ internal sealed class ProviderRequest
                 return true;
 
             var query = ParseQuery(Uri.Query);
-            return query.TryGetValue("action", out var actions) &&
-                   actions.Contains("query", StringComparer.OrdinalIgnoreCase) &&
+            if (!query.TryGetValue("action", out var wikipediaActions))
+                return false;
+
+            // The table of contents of an article (action=parse&prop=tocdata) only changes when the article is edited.
+            if (wikipediaActions.Contains("parse", StringComparer.OrdinalIgnoreCase) &&
+                query.TryGetValue("prop", out var parseProps) &&
+                parseProps.All(prop => prop.Equals("tocdata", StringComparison.OrdinalIgnoreCase)))
+                return true;
+
+            return wikipediaActions.Contains("query", StringComparer.OrdinalIgnoreCase) &&
                    query.TryGetValue("prop", out var props) &&
                    props.Any(prop =>
                        prop.Contains("extracts", StringComparison.OrdinalIgnoreCase) ||
@@ -58,8 +66,20 @@ internal sealed class ProviderRequest
             Uri.AbsolutePath.EndsWith("/w/api.php", StringComparison.OrdinalIgnoreCase))
         {
             var query = ParseQuery(Uri.Query);
-            return query.TryGetValue("action", out var actions) &&
-                   actions.Contains("wbgetentities", StringComparer.OrdinalIgnoreCase);
+            if (!query.TryGetValue("action", out var actions))
+                return false;
+
+            if (actions.Contains("wbgetentities", StringComparer.OrdinalIgnoreCase) ||
+                actions.Contains("wbsearchentities", StringComparer.OrdinalIgnoreCase))
+                return true;
+
+            // Full-text search (action=query&list=search), including the haswbstatement type and external-ID searches.
+            // A search answer is as stable as the entity data it points at, so repeated searches for the same text
+            // (the same person credited on many titles) cost one request, not one each. Malformed or error answers
+            // are never cached (ProviderJson), and answers expire with ResponseCacheTtl.
+            return actions.Contains("query", StringComparer.OrdinalIgnoreCase) &&
+                   query.TryGetValue("list", out var lists) &&
+                   lists.Contains("search", StringComparer.OrdinalIgnoreCase);
         }
 
         return false;

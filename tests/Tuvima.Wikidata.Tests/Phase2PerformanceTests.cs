@@ -219,7 +219,8 @@ public class Phase2PerformanceTests
         }));
         using var reconciler = new WikidataReconciler(client, new()
         {
-            MaxConcurrency = 2, WikidataRateLimit = ProviderRateLimitOptions.Unthrottled
+            MaxConcurrency = 2, WikidataRateLimit = ProviderRateLimitOptions.Unthrottled,
+            EntityBatchWindow = TimeSpan.Zero
         });
         var requests = Enumerable.Range(1, 10000).Select(i => new ReconciliationRequest { Query = $"Q{i}" }).ToArray();
         await using (var iterator = reconciler.Reconcile.ReconcileBatchStreamAsync(requests).GetAsyncEnumerator())

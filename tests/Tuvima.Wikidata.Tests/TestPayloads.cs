@@ -17,6 +17,8 @@ internal static class TestPayloads
         {
             UserAgent = "Tuvima.Wikidata.Tests/2.6 (https://github.com/Tuvima/wikidata)",
             EnableResponseCaching = false,
+            // These fixtures answer each request by its exact id list, so callers must not be combined.
+            EntityBatchWindow = TimeSpan.Zero,
             WikidataRateLimit = ProviderRateLimitOptions.Unthrottled,
             WikipediaRateLimit = ProviderRateLimitOptions.Unthrottled,
             CommonsRateLimit = ProviderRateLimitOptions.Unthrottled,

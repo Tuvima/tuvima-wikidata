@@ -162,6 +162,14 @@ public sealed class WikidataReconcilerOptions
     public IWikidataResponseCache? ResponseCache { get; init; } = new InMemoryWikidataResponseCache();
 
     /// <summary>
+    /// How long entity requests wait to be combined with other callers' requests for the same kind of data, so one
+    /// <c>wbgetentities</c> call can carry up to <see cref="ProviderRateLimitOptions.MaxBatchSize"/> entities instead of one call each.
+    /// Wikidata is limited by requests per second rather than by size, so combining lowers the number of requests when several
+    /// callers run at once; a single caller waits at most this long. Default is 100 milliseconds. Zero or less turns combining off.
+    /// </summary>
+    public TimeSpan EntityBatchWindow { get; init; } = TimeSpan.FromMilliseconds(100);
+
+    /// <summary>
     /// Time-to-live for successful cacheable provider responses. Default is 12 hours.
     /// </summary>
     public TimeSpan ResponseCacheTtl { get; init; } = TimeSpan.FromHours(12);

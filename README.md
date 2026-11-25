@@ -52,7 +52,7 @@ Guides, reference, migration guides and the changelog live at **[docs.tuvima.com
 
 | Version | Type | Notes |
 |---|---|---|
-| `3.10.3` | Patch | The response cache now also keeps name searches, full-text searches (including type and external-ID searches) and Wikipedia table-of-contents answers, so the same person or title searched for on many items costs one request. No public API changes. |
+| `3.10.3` | Patch | The response cache now also keeps name searches, full-text searches (including type and external-ID searches) and Wikipedia table-of-contents answers, so the same person or title searched for on many items costs one request, and an entity already fetched is not fetched again when asked for with the same or fewer properties. No public API changes. |
 | `3.10.2` | Patch | Bridge text fallback ranks common titles by the creator and series the caller supplies, reads a wider window, and counts novellas, short stories and novels as books. No public API changes. |
 | `3.10.1` | Patch | Documentation moved to [docs.tuvima.com](https://docs.tuvima.com/libraries/wikidata/); README and package links point there. No code changes. |
 | `3.10.0` | Minor | Name-valued item constraints, batched chained-path lookups, OpenRefine data extension, class-only type suggest, DI options overloads, OpenTelemetry tracing/metrics, XML docs and symbols in packages. |

@@ -79,7 +79,9 @@ public sealed class PersonsService
             Types = types,
             Properties = constraints.Count > 0 ? constraints : null,
             Language = language,
-            Limit = 5
+            Limit = 5,
+            // People carry P31=Q5 (or a group type) directly, so the type-filtered search finds them without a second, unfiltered one.
+            TypeFilteredSearchOnly = true
         };
 
         var matches = await _reconcile.ReconcileAsync(reconcileRequest, cancellationToken)

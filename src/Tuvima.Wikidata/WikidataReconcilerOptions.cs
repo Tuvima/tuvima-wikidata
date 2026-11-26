@@ -170,6 +170,15 @@ public sealed class WikidataReconcilerOptions
     public TimeSpan EntityBatchWindow { get; init; } = TimeSpan.FromMilliseconds(100);
 
     /// <summary>
+    /// When true (the default), a request for an entity's claims or sitelinks fetches the entity once in full (labels,
+    /// descriptions, aliases, claims and sitelinks, in all languages). The one fetch answers every later request for any
+    /// part of it from memory, and the callers who used to ask for different parts now share the same requests, which
+    /// <see cref="EntityBatchWindow"/> combines into fewer, fuller ones. Wikidata is limited by requests per second, not
+    /// size. Set to false to fetch exactly the parts each caller asks for.
+    /// </summary>
+    public bool WidenEntityFetches { get; init; } = true;
+
+    /// <summary>
     /// Time-to-live for successful cacheable provider responses. Default is 12 hours.
     /// </summary>
     public TimeSpan ResponseCacheTtl { get; init; } = TimeSpan.FromHours(12);

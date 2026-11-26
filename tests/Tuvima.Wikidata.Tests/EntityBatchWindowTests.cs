@@ -55,7 +55,7 @@ public class EntityBatchWindowTests
     }
 
     [Fact]
-    public async Task OtherKindsOfData_AreNotMixedIntoTheSameRequest()
+    public async Task LabelsOnly_IsNotMixedIntoTheClaimsRequest_ButClaimsInAnyLanguageShareOne()
     {
         var (fetcher, handler, pipeline, http) = Create(TimeSpan.FromMilliseconds(200));
         using var _ = http;
@@ -66,7 +66,8 @@ public class EntityBatchWindowTests
             fetcher.FetchLabelsOnlyAsync(["Q2"], "en"),
             fetcher.FetchEntitiesAsync(["Q3"], "de"));
 
-        Assert.Equal(3, handler.RequestedUris.Count);
+        // Claims asked for in different languages are fetched once in full; labels-only stays a lighter request of its own.
+        Assert.Equal(2, handler.RequestedUris.Count);
     }
 
     [Fact]

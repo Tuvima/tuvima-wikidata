@@ -82,9 +82,17 @@ internal sealed class WikidataEntityFetcher
     }
 
 
+    private const string FullEntityProps = "info|labels|descriptions|aliases|claims|sitelinks";
+
     private async Task<Dictionary<string, WikidataEntity>> FetchInBatchesAsync(
         IReadOnlyList<string> ids, string? language, string props, CancellationToken cancellationToken)
     {
+        if (_options.WidenEntityFetches && (props.Contains("claims", StringComparison.Ordinal) || props == "sitelinks"))
+        {
+            language = null;
+            props = FullEntityProps;
+        }
+
         var result = new Dictionary<string, WikidataEntity>(StringComparer.OrdinalIgnoreCase);
         var distinctIds = ids
             .Where(id => !string.IsNullOrWhiteSpace(id))

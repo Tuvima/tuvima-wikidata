@@ -159,20 +159,39 @@ internal sealed class WikidataSearchClient
         return response?.Search ?? [];
     }
 
+    /// <summary>The autocomplete search alone (wbsearchentities), without the full-text search.</summary>
+    public async Task<List<string>> SearchAutocompleteAsync(string query, string language, int limit,
+        CancellationToken cancellationToken = default)
+    {
+        if (QidPattern.IsMatch(query.Trim()))
+            return [query.Trim().ToUpperInvariant()];
+
+        var searchQuery = query.Length > 250 ? query[..250] : query;
+        return await SearchEntitiesAsync(searchQuery, language, Math.Min(2 * limit, 50), cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>
     /// Searches for entities with CirrusSearch type filtering (haswbstatement:P31=QID).
-    /// Returns entities whose P31 matches any of the provided types.
+    /// Returns entities whose P31 matches any of the provided types. By default each type is searched in turn, in the order given,
+    /// so earlier types rank first. With <paramref name="singleRequest"/> all types go in one request
+    /// (<c>haswbstatement:P31=A OR haswbstatement:P31=B</c>), which costs one request however many types are allowed
+    /// but ranks them together.
     /// </summary>
     public async Task<List<string>> SearchWithTypeFilterAsync(
         string query, string language, IReadOnlyList<string> typeQids, int limit,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, bool singleRequest = false)
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var merged = new List<string>();
 
-        foreach (var typeQid in typeQids.Where(t => !string.IsNullOrWhiteSpace(t)).Distinct(StringComparer.OrdinalIgnoreCase))
+        var types = typeQids.Where(t => !string.IsNullOrWhiteSpace(t)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var filters = singleRequest && types.Count > 1
+            ? [$"({string.Join(" OR ", types.Select(t => $"haswbstatement:P31={t}"))})"]
+            : types.Select(t => $"haswbstatement:P31={t}").ToList();
+
+        foreach (var filter in filters)
         {
-            var searchQuery = $"{query} haswbstatement:P31={typeQid}";
+            var searchQuery = $"{query} {filter}";
             var url = $"{_options.ApiEndpoint}?action=query&list=search&srnamespace=0" +
                       $"&srlimit={limit}&srsearch={Uri.EscapeDataString(searchQuery)}&format=json";
 

@@ -57,6 +57,14 @@ public sealed class ReconciliationRequest
     public bool DiacriticInsensitive { get; init; }
 
     /// <summary>
+    /// When true and <see cref="Types"/> is set, the plain full-text search is skipped: the autocomplete search and the
+    /// type-filtered full-text search (which only returns entities of the requested types) already cover the candidates,
+    /// so the unfiltered full-text search would mostly return things of other types. Saves one request per query. Use it for
+    /// types every entity carries directly, such as people (Q5). Leave it off for types with many subclasses.
+    /// </summary>
+    public bool TypeFilteredSearchOnly { get; init; }
+
+    /// <summary>
     /// Optional pipeline of text transformations applied to the query before search.
     /// </summary>
     public IReadOnlyList<Func<string, string>>? Cleaners { get; init; }

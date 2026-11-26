@@ -83,6 +83,11 @@ public sealed class ReconciliationService
             searchTasks.Add(_ctx.SearchClient.SearchMultiLanguageAsync(searchQuery, request.Languages!,
                 limit, request.DiacriticInsensitive, cancellationToken));
         }
+        else if (hasTypeConstraint && request.TypeFilteredSearchOnly && !request.DiacriticInsensitive)
+        {
+            // The type-filtered full-text search below covers the full-text side, so only the autocomplete search is added.
+            searchTasks.Add(_ctx.SearchClient.SearchAutocompleteAsync(searchQuery, language, limit, cancellationToken));
+        }
         else
         {
             searchTasks.Add(_ctx.SearchClient.SearchAsync(searchQuery, language, limit,
@@ -92,7 +97,8 @@ public sealed class ReconciliationService
         if (hasTypeConstraint)
         {
             searchTasks.Add(_ctx.SearchClient.SearchWithTypeFilterAsync(
-                searchQuery, language, effectiveTypes!, limit, cancellationToken));
+                searchQuery, language, effectiveTypes!, limit, cancellationToken,
+                singleRequest: request.TypeFilteredSearchOnly));
         }
 
         await Task.WhenAll(searchTasks).ConfigureAwait(false);

@@ -222,7 +222,7 @@ public class ScoringImprovementsTests
             var uri = Uri.UnescapeDataString(request.RequestUri!.ToString());
             if (uri.Contains("action=wbsearchentities", StringComparison.OrdinalIgnoreCase))
                 return Json(TestPayloads.SearchResponse(("Q208460", "Novel (band)"), ("Q8261", "novel"), ("Q1", "The Novel")));
-            if (uri.Contains("props=claims", StringComparison.OrdinalIgnoreCase))
+            if (uri.Contains("action=wbgetentities", StringComparison.OrdinalIgnoreCase) && uri.Contains("claims", StringComparison.OrdinalIgnoreCase))
             {
                 return Json(TestPayloads.EntityResponse(
                     TestPayloads.Entity("Q208460", "Novel (band)", claims: TestPayloads.Claims(

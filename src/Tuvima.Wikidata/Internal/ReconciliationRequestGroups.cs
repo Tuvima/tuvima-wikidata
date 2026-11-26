@@ -56,6 +56,7 @@ internal sealed class ReconciliationRequestGroups
         AppendList(sb, request.Types);
         AppendList(sb, request.ExcludeTypes);
         Append(sb, request.TypeHierarchyDepth?.ToString() ?? "-");
+        Append(sb, request.TypeFilteredSearchOnly ? "tfo" : "-");
         Append(sb, request.Limit.ToString());
         Append(sb, request.Language ?? "-");
         AppendList(sb, request.Languages);

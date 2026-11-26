@@ -10,7 +10,7 @@ Two NuGet packages:
 - `Tuvima.Wikidata` — core library, zero external dependencies
 - `Tuvima.Wikidata.AspNetCore` — W3C Reconciliation API middleware for ASP.NET Core
 
-## Architecture (v3.11.0)
+## Architecture (v3.12.0)
 
 `WikidataReconciler` is a thin **facade** that owns a shared `ReconcilerContext` (HttpClient, options, search/fetcher/scorer/type-checker collaborators, shared provider-safe HTTP pipeline, response cache hook, diagnostics, and per-host limiters) and exposes focused **sub-services** as properties:
 
@@ -466,6 +466,7 @@ Offline validation: 272 passing tests per target (.NET 8 and .NET 10), 544 execu
 - Search caching (v3.10.3): `ProviderRequest.IsCacheable` also allows `wbsearchentities`, `action=query&list=search` (including `haswbstatement:` type and external-ID searches) and Wikipedia `action=parse&prop=tocdata`, so repeated searches for one name or title are answered from `ResponseCache` (in memory by default, durable if the consumer supplies one) instead of costing a request each. Error envelopes and malformed bodies are still never cached.
 - Entity memory (v3.10.3): `Internal/EntityMemory.cs` keeps entities already fetched by `WikidataEntityFetcher` (up to 2,500 with claims and 60,000 labels/sitelinks-only, expiring with `ResponseCacheTtl`). A request is answered from memory when a held entity was fetched with every requested property and in the same language list or in all languages, so "labels" after "claims", or "sitelinks" after "claims and sitelinks", costs no request; only the ids not held are fetched. The response cache cannot do this because it is keyed by the whole URL.
 - Entity request combining (v3.11.0): `WikidataEntityFetcher` collects the ids that concurrent callers want with the same language and properties for `EntityBatchWindow` (100 ms default; zero or less disables it) and sends them as `wbgetentities` calls of up to 50 ids (a full batch goes at once). Callers wait on their own entities and on their own cancellation token; the shared request is cancelled only when every caller waiting on it has cancelled, and a failed shared request fails every caller waiting on it. Entities already held in memory are never queued.
+- Person search below threshold (v3.12.0): `PersonsService.SearchAsync` returns early when the best hit scores under `AcceptThreshold`: `Found = false` with `Qid`, `CanonicalName` and `Score` only (no entity fetch, so `Occupations`, `NotableWorks`, `IsGroup` and `GroupMembers` stay empty). One `wbgetentities` request fewer per unmatched person.
 - Bridge text fallback (v3.10.2): `Book`/`Audiobook` requests send `Creator` (P50) and `SeriesTitle` (P179) to the reconciler as scoring constraints, read up to 15 results (5 without a hint) and walk P279 two levels for the type filter, so a very common title such as "Drive" ranks the item with the matching author first instead of by item number. `Book` type hints also list novel (Q8261), novella (Q149537) and short story (Q49084).
 
 ## CI/CD

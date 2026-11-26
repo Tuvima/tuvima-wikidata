@@ -109,6 +109,19 @@ public sealed class PersonsService
         var best = matches[0];
         var normalizedScore = best.Score / 100.0;
 
+        // A hit below the accept threshold is reported as not found, so nobody reads its occupations or
+        // notable works. Skip the entity fetch that would only fill those in.
+        if (normalizedScore < request.AcceptThreshold)
+        {
+            return new PersonSearchResult
+            {
+                Found = false,
+                Qid = best.Id,
+                CanonicalName = best.Name,
+                Score = normalizedScore
+            };
+        }
+
         // Fetch the resolved entity's claims to populate occupations, notable works, and (optionally) group membership.
         var entities = await _ctx.EntityFetcher.FetchEntitiesAsync([best.Id], language, cancellationToken)
             .ConfigureAwait(false);

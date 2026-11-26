@@ -40,7 +40,7 @@ This is the first .NET Wikidata reconciliation library, filling a gap in the eco
 | [`Tuvima.Wikidata`](https://www.nuget.org/packages/Tuvima.Wikidata) | Core library — reconciliation, entity data, Wikipedia content, graph traversal |
 | [`Tuvima.Wikidata.AspNetCore`](https://www.nuget.org/packages/Tuvima.Wikidata.AspNetCore) | ASP.NET Core middleware for hosting a W3C Reconciliation Service API |
 
-Current release: `3.11.0`
+Current release: `3.12.0`
 
 Current offline validation: 272 passing tests on each of .NET 8 and .NET 10 (544 executions). Live integration tests run separately against Wikimedia services.
 
@@ -52,6 +52,7 @@ Guides, reference, migration guides and the changelog live at **[docs.tuvima.com
 
 | Version | Type | Notes |
 |---|---|---|
+| `3.12.0` | Minor | `Persons.SearchAsync` and `SearchBatchAsync` no longer fetch the best hit's details when its score is below `AcceptThreshold`: such a result is still `Found = false` with its `Qid`, `CanonicalName` and `Score`, but its `Occupations`, `NotableWorks`, `IsGroup` and `GroupMembers` stay empty. One request fewer for every person that is not matched. |
 | `3.11.0` | Minor | Callers that run at the same time and want the same kind of entity data now share requests: what they ask for is collected for a short moment (new option `EntityBatchWindow`, 100 ms by default, zero turns it off) and fetched together, up to 50 entities per `wbgetentities` call, instead of one small call each. A request is cancelled only when every caller waiting on it has cancelled. Fewer requests for the same answers. |
 | `3.10.3` | Patch | The response cache now also keeps name searches, full-text searches (including type and external-ID searches) and Wikipedia table-of-contents answers, so the same person or title searched for on many items costs one request, and an entity already fetched is not fetched again when asked for with the same or fewer properties. No public API changes. |
 | `3.10.2` | Patch | Bridge text fallback ranks common titles by the creator and series the caller supplies, reads a wider window, and counts novellas, short stories and novels as books. No public API changes. |

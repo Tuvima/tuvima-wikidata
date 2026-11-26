@@ -67,8 +67,8 @@ public class BridgeResolutionServiceTests
     [Fact]
     public void WikidataLibraryInfo_ExposesPackageVersion()
     {
-        Assert.StartsWith("3.12.0", WikidataLibraryInfo.PackageVersion, StringComparison.Ordinal);
-        Assert.StartsWith("3.12.0", WikidataReconciler.LibraryVersion, StringComparison.Ordinal);
+        Assert.StartsWith("3.13.0", WikidataLibraryInfo.PackageVersion, StringComparison.Ordinal);
+        Assert.StartsWith("3.13.0", WikidataReconciler.LibraryVersion, StringComparison.Ordinal);
     }
 
     [Fact]
